@@ -1124,7 +1124,64 @@ function PolicyPage({ pageKey, settings }) {
 /* =====================================================
    ACCOUNTS — login, balance, top-up
 ===================================================== */
-function LoginPage({ whatsapp, onDone }) {
+/* Signing in and asking for an account are the same page, two tabs.
+ *
+ * They were two pages, and that put a navigation between a customer and the
+ * thing they were trying to do: someone who does not have an account yet has to
+ * discover that they are on the wrong page, find the link, and load another one.
+ * Someone who does have an account and lands on the request form has the same
+ * problem in reverse. A tab is one tap and the answer is visible before it is
+ * needed.
+ *
+ * The tab is driven by the route rather than by internal state, so /login and
+ * /request stay real, shareable, back-button-able URLs. */
+function AccountAccessPage({ mode = "signin", whatsapp, onDone }) {
+  const { t } = useT();
+  const tab = (key, label) => {
+    const on = mode === key;
+    return (
+      <a
+        key={key}
+        href={key === "signin" ? "/login" : "/request"}
+        className="press lbl flex-1 text-center"
+        aria-current={on ? "page" : undefined}
+        style={{
+          padding: "10px 8px", fontSize: 11.5, letterSpacing: ".12em",
+          textTransform: "uppercase", borderRadius: 9,
+          background: on ? T.surface : "transparent",
+          color: on ? T.ink : T.inkSoft,
+          border: `1px solid ${on ? T.line : "transparent"}`,
+          boxShadow: on ? "0 6px 18px -14px var(--shadow)" : "none",
+        }}
+      >
+        {label}
+      </a>
+    );
+  };
+
+  return (
+    <main className="px-4 sm:px-6 py-12" style={{ maxWidth: 460, margin: "0 auto" }}>
+      <div data-reveal>
+        <Eyebrow style={{ marginBottom: 12 }}>{t("acc.account")}</Eyebrow>
+
+        <div className="flex gap-1 p-1 mb-7"
+          style={{ background: T.surface2, border: `1px solid ${T.line}`, borderRadius: 12 }}>
+          {tab("signin", t("acc.signIn"))}
+          {tab("request", t("req.cta"))}
+        </div>
+
+        {/* onDone is the sign-in's "you are through, go somewhere" callback.
+            The request form deliberately does not get it: a request does not
+            sign anyone in, and it has its own confirmation to show. */}
+        {mode === "request"
+          ? <RequestAccountForm whatsapp={whatsapp} />
+          : <SignInForm whatsapp={whatsapp} onDone={onDone} />}
+      </div>
+    </main>
+  );
+}
+
+function SignInForm({ whatsapp, onDone }) {
   const { t } = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -1137,7 +1194,7 @@ function LoginPage({ whatsapp, onDone }) {
     setBusy(true); setErr("");
     try {
       await auth.signIn(email.trim(), password);
-      onDone();
+      onDone?.();
     } catch (ex) {
       setErr(ex?.message || t("acc.wrong"));
     } finally {
@@ -1146,46 +1203,41 @@ function LoginPage({ whatsapp, onDone }) {
   };
 
   return (
-    <main className="px-4 sm:px-6 py-16" style={{ maxWidth: 460, margin: "0 auto" }}>
-      <div data-reveal>
-        <Eyebrow style={{ marginBottom: 12 }}>{t("acc.account")}</Eyebrow>
-        <h1 style={{ fontFamily: display, fontSize: "clamp(28px, 6.5vw, 42px)", lineHeight: 1.15, fontWeight: 400 }}>
-          {t("acc.loginTitle")}
-        </h1>
-        <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 12 }}>
-          {t("acc.loginBody")}
-        </p>
+    <>
+      <h1 style={{ fontFamily: display, fontSize: "clamp(26px, 6vw, 38px)", lineHeight: 1.15, fontWeight: 400 }}>
+        {t("acc.loginTitle")}
+      </h1>
+      <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 12 }}>
+        {t("acc.loginBody")}
+      </p>
 
-        <form className="flex flex-col gap-3 mt-8" onSubmit={submit}>
-          <Field label={t("acc.email")} type="email" value={email} dir="ltr" autoComplete="username"
-            onChange={(e) => { setEmail(e.target.value); setErr(""); }} />
-          <Field label={t("acc.password")} type="password" value={password} dir="ltr" autoComplete="current-password"
-            onChange={(e) => { setPassword(e.target.value); setErr(""); }} />
-          {err && (
-            <p className="flex items-start gap-1.5" style={{ fontSize: 12.5, color: T.brandText }}>
-              <AlertTriangle size={14} className="shrink-0" style={{ marginTop: 1 }} /> {err}
-            </p>
-          )}
-          <Btn full type="submit" style={{ opacity: busy ? 0.6 : 1 }}>
-            {busy ? t("acc.signingIn") : t("acc.signIn")}
-          </Btn>
-        </form>
+      <form className="flex flex-col gap-3 mt-7" onSubmit={submit}>
+        <Field label={t("acc.email")} type="email" value={email} dir="ltr" autoComplete="username"
+          onChange={(e) => { setEmail(e.target.value); setErr(""); }} />
+        <Field label={t("acc.password")} type="password" value={password} dir="ltr" autoComplete="current-password"
+          onChange={(e) => { setPassword(e.target.value); setErr(""); }} />
+        {err && (
+          <p className="flex items-start gap-1.5" style={{ fontSize: 12.5, color: T.brandText }}>
+            <AlertTriangle size={14} className="shrink-0" style={{ marginTop: 1 }} /> {err}
+          </p>
+        )}
+        <Btn full type="submit" style={{ opacity: busy ? 0.6 : 1 }}>
+          {busy ? t("acc.signingIn") : t("acc.signIn")}
+        </Btn>
+      </form>
 
+      {/* WhatsApp stays as the fallback for anyone who would rather just talk to
+          a person than fill in a form. */}
+      {whatsapp && (
         <div className="mt-8 pt-6 text-center" style={{ borderTop: `1px solid ${T.line}` }}>
           <p style={{ fontSize: 13.5, color: T.inkSoft, marginBottom: 12 }}>{t("acc.noAccount")}</p>
-          {/* The form is the primary path now — it reaches Ali complete, at any
-              hour, instead of starting a conversation he has to finish by hand.
-              WhatsApp stays as the fallback for anyone who would rather talk. */}
-          <a href="/request" className="block"><Btn full>{t("req.cta")}</Btn></a>
-          {whatsapp && (
-            <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(t("acc.askMessage"))}`}
-              target="_blank" rel="noopener noreferrer" className="block mt-2">
-              <Btn variant="ghost" full><MessageCircle size={15} /> {t("acc.askForOne")}</Btn>
-            </a>
-          )}
+          <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(t("acc.askMessage"))}`}
+            target="_blank" rel="noopener noreferrer">
+            <Btn variant="ghost" full><MessageCircle size={15} /> {t("acc.askForOne")}</Btn>
+          </a>
         </div>
-      </div>
-    </main>
+      )}
+    </>
   );
 }
 
@@ -1193,7 +1245,7 @@ function LoginPage({ whatsapp, onDone }) {
    form only replaces the WhatsApp round-trip where he asks for name, email and
    phone one message at a time, and it means a customer at 2am is a request
    waiting in the morning rather than a sale lost to a slow reply. */
-function RequestAccountPage({ whatsapp, onDone }) {
+function RequestAccountForm({ whatsapp }) {
   const { t } = useT();
   const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
   const [touched, setTouched] = useState({});
@@ -1226,7 +1278,6 @@ function RequestAccountPage({ whatsapp, onDone }) {
       const res = await requestAccount(form);
       setSent(res?.email || form.email.trim().toLowerCase());
       trackEvent("Account requested");
-      onDone?.();
     } catch (ex) {
       setErr(ex?.message || "Could not send that. Please try again.");
     } finally {
@@ -1237,7 +1288,7 @@ function RequestAccountPage({ whatsapp, onDone }) {
   if (sent) {
     const msg = t("req.tellUsMessage", { email: sent });
     return (
-      <main className="px-4 sm:px-6 py-20 text-center" style={{ maxWidth: 460, margin: "0 auto" }}>
+      <div className="text-center py-6">
         <div className="flex items-center justify-center pop mx-auto"
           style={{ width: 52, height: 52, borderRadius: 26, background: T.tint, marginBottom: 18 }}>
           <Check size={24} style={{ color: T.ok }} />
@@ -1255,20 +1306,18 @@ function RequestAccountPage({ whatsapp, onDone }) {
           )}
           <a href="/login"><Btn full variant="ghost">{t("req.backToSignIn")}</Btn></a>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="px-4 sm:px-6 py-12" style={{ maxWidth: 460, margin: "0 auto" }}>
-      <div data-reveal>
-        <Eyebrow style={{ marginBottom: 12 }}>{t("acc.account")}</Eyebrow>
-        <h1 style={{ fontFamily: display, fontSize: "clamp(28px, 6.5vw, 42px)", lineHeight: 1.15, fontWeight: 400 }}>
+    <>
+        <h1 style={{ fontFamily: display, fontSize: "clamp(26px, 6vw, 38px)", lineHeight: 1.15, fontWeight: 400 }}>
           {t("req.title")}
         </h1>
         <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 12 }}>{t("req.body")}</p>
 
-        <form className="flex flex-col gap-3 mt-8" onSubmit={submit}>
+        <form className="flex flex-col gap-3 mt-7" onSubmit={submit}>
           <Field label={t("req.name")} value={form.name} onChange={set("name")} onBlur={blur("name")}
             error={errorFor("name")} placeholder={t("req.namePlaceholder")} autoComplete="name" />
           <Field label={t("req.email")} type="email" value={form.email} onChange={set("email")} onBlur={blur("email")}
@@ -1293,12 +1342,16 @@ function RequestAccountPage({ whatsapp, onDone }) {
           </Btn>
         </form>
 
-        <div className="mt-8 pt-6 text-center" style={{ borderTop: `1px solid ${T.line}` }}>
-          <p style={{ fontSize: 13.5, color: T.inkSoft, marginBottom: 12 }}>{t("req.haveAccount")}</p>
-          <a href="/login"><Btn variant="ghost" full>{t("acc.signIn")}</Btn></a>
-        </div>
-      </div>
-    </main>
+        {whatsapp && (
+          <div className="mt-8 pt-6 text-center" style={{ borderTop: `1px solid ${T.line}` }}>
+            <p style={{ fontSize: 13.5, color: T.inkSoft, marginBottom: 12 }}>{t("acc.noAccount")}</p>
+            <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(t("acc.askMessage"))}`}
+              target="_blank" rel="noopener noreferrer">
+              <Btn variant="ghost" full><MessageCircle size={15} /> {t("acc.askForOne")}</Btn>
+            </a>
+          </div>
+        )}
+    </>
   );
 }
 
@@ -2589,28 +2642,26 @@ function Store() {
   if (route === "/track") return chrome(<TrackPage />);
   if (pageRoute) return chrome(<PolicyPage pageKey={pageRoute[1]} settings={settings} />);
 
-  /* Someone already signed in has no use for this page, and landing on it after
-     a session restore would be confusing. */
-  if (route === "/request") {
-    return session
-      ? chrome(<AccountPage account={account} loading={accountLoading} whatsapp={settings.whatsapp}
-                 onSignOut={async () => { await auth.signOut(); setSession(null); go("/"); }} />)
-      : chrome(<RequestAccountPage whatsapp={settings.whatsapp} />);
-  }
-
-  if (route === "/login") {
+  /* Signing in and requesting an account are one page with two tabs; the route
+     just says which tab. Someone already signed in has no use for either, and
+     landing on them after a session restore would be confusing. */
+  if (route === "/login" || route === "/request") {
     return session
       ? chrome(<AccountPage account={account} loading={accountLoading} whatsapp={settings.whatsapp}
                  onSignOut={async () => { await auth.signOut(); setSession(null); go("/"); }} />)
       /* Stay put when something is waiting to be resumed — the effect below
          handles where to go, and two navigations at once race each other. */
-      : chrome(<LoginPage whatsapp={settings.whatsapp}
+      : chrome(<AccountAccessPage
+                 mode={route === "/request" ? "request" : "signin"}
+                 whatsapp={settings.whatsapp}
                  onDone={() => { if (!pendingResume()) go("/account"); }} />);
   }
   if (route === "/account" || route === "/topup") {
-    /* A signed-out visitor lands on the login page rather than an error — the
+    /* A signed-out visitor lands on the sign-in page rather than an error — the
        link is shared, bookmarked, and reached after a session expires. */
-    if (!session) return chrome(<LoginPage whatsapp={settings.whatsapp} onDone={() => go(route)} />);
+    if (!session) {
+      return chrome(<AccountAccessPage whatsapp={settings.whatsapp} onDone={() => go(route)} />);
+    }
     return chrome(route === "/topup"
       ? <TopUpPage settings={settings} account={account} onDone={refreshAccount} />
       : <AccountPage account={account} loading={accountLoading} whatsapp={settings.whatsapp}
