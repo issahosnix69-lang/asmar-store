@@ -20,12 +20,24 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "vite";
 
 import { SEED_CATALOG, SEED_SETTINGS } from "../src/seed.js";
-import { metaFor, isNoindex, slugify, SITE_URL } from "../src/seo.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = path.join(ROOT, "dist");
+
+/* Vite loads .env / .env.local for the browser bundle, but this script is
+   plain Node and gets none of that. Without it the prerender silently falls
+   back to the demo catalogue even when the keys are sitting right there —
+   producing a live site whose every product page describes seed data.
+   loadEnv applies Vite's own precedence rules, so this and the bundle can
+   never disagree about which project they are pointing at. */
+Object.assign(process.env, loadEnv(process.env.NODE_ENV || "production", ROOT, "VITE_"));
+
+/* Imported after the env is in place: seo.js reads VITE_SITE_URL at module
+   scope, so importing it any earlier would freeze the fallback URL. */
+const { metaFor, isNoindex, slugify, SITE_URL } = await import("../src/seo.js");
 
 /* ------------------------------------------------------------------ content */
 async function loadShop() {
@@ -73,7 +85,18 @@ async function loadShop() {
         }
       : SEED_SETTINGS;
 
-    console.log(`  · loaded ${catalog.length} products from Supabase`);
+    /* Say which of the two actually happened. Reporting the fallback as
+       "loaded from Supabase" hid an empty products table behind a reassuring
+       message — the prerendered pages would describe demo products on a live
+       shop and nothing would say so. */
+    if (products.length) {
+      console.log(`  · loaded ${catalog.length} products from Supabase`);
+    } else {
+      console.warn(
+        `  ! the products table is EMPTY — prerendering the ${catalog.length} demo products instead.\n` +
+        "    Open the admin -> Settings -> \"Push this catalogue to the database\" to fix.",
+      );
+    }
     return { catalog, settings, reviews: settings.reviews || [] };
   } catch (e) {
     /* A build must not fail because the database was briefly unreachable. */
