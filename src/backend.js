@@ -760,26 +760,50 @@ export async function runDiagnostics() {
   }
 
   /* --- edge functions --- */
-  const fn = async (name, label, why, body) => {
+  /* Asks the function's URL directly rather than going through
+     functions.invoke().
+
+     invoke() reports a missing function as a FunctionsFetchError with no HTTP
+     status attached, which the previous version of this check read as "not a
+     404, therefore fine" — so it reported three undeployed functions as
+     "Deployed and responding" and the first sign anything was wrong was a
+     customer's account failing to be created. A plain fetch gives a real status
+     code and cannot be misread. */
+  const fn = async (name, label, why) => {
+    const base = URL.replace(".supabase.co", ".functions.supabase.co");
+    const deployTip =
+      `Supabase → Edge Functions → Deploy a new function → name it exactly "${name}", ` +
+      `paste the contents of supabase/functions/${name}/index.ts, and deploy. ` +
+      `Or, with the CLI: supabase functions deploy ${name}`;
     try {
-      const { error } = await supabase.functions.invoke(name, { body });
-      const status = error?.context?.status;
-      if (status === 404) {
-        add(label, "bad", `The ${name} function is not deployed. ${why}`,
-          `supabase functions deploy ${name}`);
+      const res = await fetch(`${base}/${name}`, {
+        method: "POST",
+        headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ probe: true }),
+      });
+      if (res.status === 404) {
+        add(label, "bad", `The ${name} function is not deployed. ${why}`, deployTip);
       } else {
-        add(label, "ok", "Deployed and responding.", null);
+        /* Any other status means something answered — 401 and 400 are the
+           function itself rejecting a probe, which is the correct behaviour. */
+        add(label, "ok", `Deployed and responding (HTTP ${res.status}).`, null);
       }
-    } catch {
-      add(label, "warn", `Could not reach ${name}. If you have not deployed it yet, that is why.`,
-        `supabase functions deploy ${name}`);
+    } catch (e) {
+      add(label, "bad", `Could not reach ${name}: ${e.message}. ${why}`, deployTip);
     }
   };
   await fn("admin-create-customer", "Creating customer logins",
-    "You will not be able to make accounts from the Customers tab.", { probe: true });
-  await fn("notify-order", "Order alerts",
-    "Nothing will reach your phone when an order arrives — you will only see it by opening this admin.",
-    { probe: true });
+    "Approving an account request and making a customer by hand will both fail.");
+  /* Only worth reporting if the database trigger is actually pointed at it —
+     supabase/notify-direct.sql sends to Telegram from Postgres instead, and on
+     that route this function is meant to be absent. */
+  const { data: viaFunction } = await supabase
+    .rpc("notify_uses_edge_function")
+    .catch(() => ({ data: false }));
+  if (viaFunction) {
+    await fn("notify-order", "Order alerts",
+      "Nothing will reach your phone when an order arrives.");
+  }
 
   /* Deployed is not the same as wired up: the function can be live while the
      trigger still has no URL to post to, which looks fine and delivers nothing. */

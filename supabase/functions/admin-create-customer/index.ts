@@ -9,7 +9,10 @@
  * Secrets it needs (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are provided by
  * the platform automatically — you do not set those yourself).
  */
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/* jsr:, not esm.sh. The esm.sh URL fails to boot on the Edge Runtime —
+   "BOOT_ERROR: Function failed to start" with nothing else to go on — and the
+   other functions here already use jsr. */
+import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",

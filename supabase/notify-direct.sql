@@ -155,3 +155,22 @@ $$;
 
 revoke all on function public.notify_is_configured() from public;
 grant execute on function public.notify_is_configured() to authenticated;
+
+-- Tells the admin's Diagnostics which alert route is in use, so it stops
+-- reporting a missing notify-order function as a fault on a shop that
+-- deliberately does not use one.
+create or replace function public.notify_uses_edge_function()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(
+    (select url <> '' and telegram_token = '' from public.notify_config where id = 1),
+    false
+  );
+$$;
+
+revoke all on function public.notify_uses_edge_function() from public;
+grant execute on function public.notify_uses_edge_function() to authenticated;
