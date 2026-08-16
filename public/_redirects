@@ -1,0 +1,12 @@
+# SPA fallback, in the format Netlify and Cloudflare Pages both understand.
+#
+# The shop uses real paths (/p/netflix), so a shared link asks the host for a
+# file that does not exist. Serve the app instead and let the router resolve it.
+#
+# Status 200, not 301: a redirect would change the address bar and lose the page
+# the customer was sent.
+#
+# Prerendered pages (dist/p/netflix/index.html and the rest) are real files and
+# are served before this rule is ever consulted — which is the point, because
+# those carry the per-page title and description a crawler reads.
+/*    /index.html   200

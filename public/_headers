@@ -1,0 +1,18 @@
+# Security and caching headers, in the format Netlify and Cloudflare Pages both
+# understand. netlify.toml already sets these for Netlify; this file makes them
+# apply on Cloudflare Pages too, so moving host does not quietly drop them.
+
+/*
+  X-Frame-Options: SAMEORIGIN
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), microphone=(), camera=(), payment=()
+
+# Filenames are content-hashed, so these can never go stale.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The HTML shells must not be cached hard, or a returning customer keeps being
+# handed the previous deploy's asset names after a release.
+/*.html
+  Cache-Control: public, max-age=0, must-revalidate
