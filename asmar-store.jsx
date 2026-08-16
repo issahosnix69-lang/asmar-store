@@ -1193,8 +1193,20 @@ function SignInForm({ whatsapp, onDone }) {
     if (busy) return;
     setBusy(true); setErr("");
     try {
+      /* Read before signing in, not after. Signing in fires an auth-change
+         event, and the effect listening for it consumes the resume marker —
+         synchronously in local mode. Checking afterwards therefore sometimes
+         saw nothing waiting and sent the customer to the wrong page, and which
+         way it went depended on event timing. */
+      const hadResume = Boolean(pendingResume());
       await auth.signIn(email.trim(), password);
-      onDone?.();
+      /* One sign-in for everyone. Whether this person runs the shop or buys
+         from it is the database's answer, not a second form and not a choice
+         the customer makes — asking someone to pick "am I staff?" is both a
+         worse experience and a thing worth lying about. The check is
+         server-side, so a wrong answer is not available. */
+      const isAdmin = await auth.isAdmin().catch(() => false);
+      onDone?.(isAdmin, hadResume);
     } catch (ex) {
       setErr(ex?.message || t("acc.wrong"));
     } finally {
@@ -2574,13 +2586,25 @@ function Store() {
   const notesAr = settings.categoryNotesAr || {};
   const catNote = (c) => pick(lang, notes[c], notesAr[c]);
 
+  /* Where a successful sign-in lands. An admin goes to the admin — that is what
+     they signed in to do — unless something was explicitly waiting to be
+     resumed, like a cart they were stopped at, which is more specific than any
+     default and wins. */
+  const afterSignIn = (fallback) => (isAdmin, hadResume) => {
+    if (hadResume) return;                // the resume effect handles where to go
+    go(isAdmin ? "/admin" : fallback);
+  };
+
   if (!ready) return <BootSkeleton />;
 
   const orderRoute = route.match(/^\/order\/(.+)$/);
   if (orderRoute) {
     return <OrderStatusPage code={decodeURIComponent(orderRoute[1])} whatsapp={settings.whatsapp} />;
   }
-  if (route === "/admin") {
+  /* Signed in already, or in local mode where the PIN gate inside Admin stands
+     in for auth. The signed-out case needs `chrome`, so it is handled below
+     once that is defined. */
+  if (route === "/admin" && (session || !auth.real)) {
     return (
       <Suspense fallback={<BootSkeleton />}>
         <Admin
@@ -2639,6 +2663,16 @@ function Store() {
     </div>
   );
 
+  /* The admin has no sign-in form of its own any more. Ali uses the same one
+     every customer uses, and the database decides what he sees afterwards — a
+     second login screen was a second prompt for the same password, and it hid
+     the fact that the two are one account. */
+  if (route === "/admin") {
+    return chrome(
+      <AccountAccessPage whatsapp={settings.whatsapp} onDone={afterSignIn("/admin")} />,
+    );
+  }
+
   if (route === "/track") return chrome(<TrackPage />);
   if (pageRoute) return chrome(<PolicyPage pageKey={pageRoute[1]} settings={settings} />);
 
@@ -2654,13 +2688,13 @@ function Store() {
       : chrome(<AccountAccessPage
                  mode={route === "/request" ? "request" : "signin"}
                  whatsapp={settings.whatsapp}
-                 onDone={() => { if (!pendingResume()) go("/account"); }} />);
+                 onDone={afterSignIn("/account")} />);
   }
   if (route === "/account" || route === "/topup") {
     /* A signed-out visitor lands on the sign-in page rather than an error — the
        link is shared, bookmarked, and reached after a session expires. */
     if (!session) {
-      return chrome(<AccountAccessPage whatsapp={settings.whatsapp} onDone={() => go(route)} />);
+      return chrome(<AccountAccessPage whatsapp={settings.whatsapp} onDone={afterSignIn(route)} />);
     }
     return chrome(route === "/topup"
       ? <TopUpPage settings={settings} account={account} onDone={refreshAccount} />

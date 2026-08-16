@@ -300,6 +300,84 @@ describe("requesting an account", () => {
   });
 });
 
+describe("one sign-in for admin and customer", () => {
+  const seedUser = ({ isAdmin = false } = {}) => {
+    localStorage.setItem("asmar:accounts", JSON.stringify([
+      { id: "u1", email: "ali@example.com", password: "pw", name: "Ali",
+        phone: "70123456", active: true, isAdmin },
+    ]));
+  };
+
+  const signIn = async (user) => {
+    await user.type(await screen.findByLabelText(/email/i), "ali@example.com");
+    await user.type(screen.getByLabelText(/password/i), "pw");
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+  };
+
+  it("offers one email-and-password form", async () => {
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+    expect(await screen.findByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
+    /* No "sign in as admin" anywhere — which they are is the database's
+       answer, not a checkbox. */
+    expect(screen.queryByText(/sign in as admin/i)).not.toBeInTheDocument();
+  });
+
+  it("sends a customer to their account, not the admin", async () => {
+    const user = userEvent.setup();
+    seedUser({ isAdmin: false });
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+
+    await signIn(user);
+    await waitFor(() => expect(window.location.pathname).toBe("/account"));
+  });
+
+  it("sends an admin straight to the admin", async () => {
+    const user = userEvent.setup();
+    seedUser({ isAdmin: true });
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+
+    await signIn(user);
+    /* The customer never chooses which they are — the stored account does. */
+    await waitFor(() => expect(window.location.pathname).toBe("/admin"));
+  });
+
+  it("honours a waiting cart over the admin redirect", async () => {
+    const user = userEvent.setup();
+    seedUser({ isAdmin: true });
+    /* Someone stopped at the cart and then signing in wanted the cart, not the
+       admin — the more specific intent wins. */
+    localStorage.setItem("asmar:resume", "cart");
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+
+    await signIn(user);
+    await waitFor(() => expect(window.location.pathname).toBe("/"));
+  });
+
+  it("keeps a wrong password out", async () => {
+    const user = userEvent.setup();
+    seedUser({ isAdmin: true });
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+
+    await user.type(await screen.findByLabelText(/email/i), "ali@example.com");
+    await user.type(screen.getByLabelText(/password/i), "wrong");
+    await user.click(screen.getByRole("button", { name: /^sign in$/i }));
+
+    await waitFor(() => expect(document.body.textContent).toMatch(/wrong email or password/i));
+    expect(window.location.pathname).toBe("/login");
+  });
+});
+
 describe("language", () => {
   it("flips the whole document to Arabic and back", async () => {
     const user = userEvent.setup();

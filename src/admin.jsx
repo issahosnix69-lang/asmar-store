@@ -252,17 +252,19 @@ export default function Admin({
     );
   }
 
-  /* Signed in, but as a customer. Saying so plainly beats a blank admin that
-     silently fails every save. */
+  /* Signed in, but as a customer. There is one sign-in for the whole shop, so
+     landing here is not a mistake to scold — it just means this account is not
+     the owner's. Saying so plainly beats a blank admin that silently fails
+     every save. */
   if (notAdmin) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center px-6 text-center"
         style={{ background: T.bg, fontFamily: ui, color: T.ink }}>
         <div style={{ fontFamily: script, fontSize: 34, color: T.brandText, marginBottom: 18 }}>Asmar</div>
-        <p style={{ fontFamily: display, fontSize: 24, marginBottom: 8 }}>This account is not an admin</p>
+        <p style={{ fontFamily: display, fontSize: 24, marginBottom: 8 }}>This is a customer account</p>
         <p style={{ fontSize: 14, color: T.inkSoft, maxWidth: 360, lineHeight: 1.7 }}>
-          It is signed in as a customer. Sign out and use the owner account, or add this
-          user to the <code>admins</code> table.
+          Everything in your account — your balance, your orders — is on the store side.
+          Sign out and back in with the owner account to manage the shop.
         </p>
         <div className="flex flex-col gap-2.5 mt-8" style={{ width: "100%", maxWidth: 280 }}>
           <Btn full variant="ghost" onClick={async () => { await auth.signOut(); }}>Sign out</Btn>

@@ -327,7 +327,13 @@ function localSignIn(email, password) {
   const found = localAccounts().find((a) => a.email === e && a.password === password);
   if (!found) throw new Error("Wrong email or password.");
   if (!found.active) throw new Error("This account is not active. Message us on WhatsApp.");
-  const session = { user: { id: found.id, email: found.email, name: found.name, isAdmin: false } };
+  /* Carries the account's own flag rather than hardcoding false. The local twin
+     is meant to behave like the server, and with a single sign-in for admins
+     and customers alike, "is this person an admin" is the branch that decides
+     where they land — untestable locally if it is always no. */
+  const session = {
+    user: { id: found.id, email: found.email, name: found.name, isAdmin: !!found.isAdmin },
+  };
   LS.set("session", session);
   notifyLocalAuth();
   return session;
