@@ -66,6 +66,15 @@ alter table public.topups add column if not exists receipt_path text not null de
 -- Now takes the storage path the browser has already uploaded to, rather than
 -- the image itself. Everything else — the amount ceiling, the pending-request
 -- limit, the active-account check — is unchanged.
+--
+-- The drop is required, not tidiness. accounts.sql declared this function's
+-- third parameter as p_receipt and this one calls it p_path; the signature
+-- (numeric, text, text) is identical either way, and Postgres refuses to
+-- rename a parameter through CREATE OR REPLACE:
+--   ERROR 42P13: cannot change name of input parameter "p_receipt"
+-- Dropping first is the documented fix. Safe to run repeatedly.
+drop function if exists public.submit_topup(numeric, text, text);
+
 create or replace function public.submit_topup(
   p_amount numeric,
   p_method text,
