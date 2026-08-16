@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from "react";
 import {
-  ShoppingBag, Plus, Minus, X, Check, Trash2, Lock, Loader2, Receipt,
+  ShoppingBag, Plus, Minus, X, Check, Trash2, Loader2, Receipt,
   Search, AlertTriangle, Sun, Moon, Zap, ShieldCheck, MessageCircle, Instagram,
   Star, ArrowRight, Home, Ticket, HelpCircle, Sparkles, Languages, ChevronDown, Clock,
   User, Wallet, Upload, LogOut, ImagePlus,
@@ -220,10 +220,9 @@ function ShopHeader({ categories, activeCategory, count, onCart, onSearch, theme
             className="press icon-btn" style={{ ...iconBtn, color: signedIn ? T.brandText : T.ink }}>
             {signedIn ? <Wallet size={18} /> : <User size={18} />}
           </a>
-          <a href="/admin" aria-label={t("nav.admin")} className="press icon-btn hidden sm:flex"
-            style={{ ...iconBtn, color: T.inkSoft }}>
-            <Lock size={16} />
-          </a>
+          {/* No padlock here. It sat in the header of every page a customer
+              ever saw, advertising a door only one person can open. The footer
+              link is enough for the one person who needs it. */}
           <button onClick={onCart} aria-label={t("nav.openCart")} className="relative press icon-btn" style={iconBtn}>
             <ShoppingBag size={19} />
             {count > 0 && (
