@@ -10,6 +10,13 @@
 --   * balances are a ledger, not a number. wallet_entries is append-only and the
 --     balance is its sum, so a wrong balance can always be traced to an entry.
 
+-- gen_random_bytes() below comes from pgcrypto, which Supabase installs into
+-- the `extensions` schema. The functions that use it therefore declare
+-- `search_path = public, extensions` — without that they raise
+-- "function gen_random_bytes(integer) does not exist" at call time, long
+-- after this script reported success.
+create extension if not exists pgcrypto with schema extensions;
+
 -- ==================================================================== admins
 create table if not exists public.admins (
   user_id    uuid primary key references auth.users(id) on delete cascade,
@@ -243,7 +250,7 @@ create or replace function public.submit_topup(
   p_receipt text
 )
 returns public.topups
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_uid     uuid := auth.uid();
@@ -468,7 +475,7 @@ create or replace function public.place_order(
   p_use_balance  boolean default false
 )
 returns public.orders
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_item     jsonb;

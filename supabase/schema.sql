@@ -6,6 +6,13 @@
 --   * only a signed-in admin may read orders, or change products/settings
 --   * order totals are computed on the server, never trusted from the browser
 
+-- gen_random_bytes() below comes from pgcrypto, which Supabase installs into
+-- the `extensions` schema. The functions that use it therefore declare
+-- `search_path = public, extensions` — without that they raise
+-- "function gen_random_bytes(integer) does not exist" at call time, long
+-- after this script reported success.
+create extension if not exists pgcrypto with schema extensions;
+
 -- ---------------------------------------------------------------- products
 create table if not exists public.products (
   id          text primary key,
@@ -121,7 +128,7 @@ create or replace function public.place_order(p_items jsonb, p_customer jsonb)
 returns public.orders
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions
 as $$
 declare
   v_item      jsonb;

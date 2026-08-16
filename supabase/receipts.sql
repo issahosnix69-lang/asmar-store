@@ -16,6 +16,13 @@
 -- note on admin_topups below.
 -- ===========================================================================
 
+-- gen_random_bytes() below comes from pgcrypto, which Supabase installs into
+-- the `extensions` schema. The functions that use it therefore declare
+-- `search_path = public, extensions` — without that they raise
+-- "function gen_random_bytes(integer) does not exist" at call time, long
+-- after this script reported success.
+create extension if not exists pgcrypto with schema extensions;
+
 -- ------------------------------------------------------------------ bucket
 -- Private. A receipt shows a real transfer between two real people; it must
 -- never be readable by URL alone.
@@ -81,7 +88,7 @@ create or replace function public.submit_topup(
   p_path   text
 )
 returns public.topups
-language plpgsql security definer set search_path = public
+language plpgsql security definer set search_path = public, extensions
 as $$
 declare
   v_uid     uuid := auth.uid();
