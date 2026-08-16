@@ -463,6 +463,90 @@ export async function receiptUrl(path) {
   return data.signedUrl;
 }
 
+/* ======================================================== account requests
+ * Customers still do not sign themselves up — Ali creates every login. This
+ * only removes the WhatsApp round-trip where he asks for name, email and phone
+ * one message at a time.
+ */
+export async function requestAccount({ name, email, phone, password }) {
+  const supabase = await getClient();
+  if (!supabase) {
+    const e = String(email).trim().toLowerCase();
+    if (localAccounts().some((a) => a.email === e)) {
+      throw new Error("There is already an account with that email. Try signing in.");
+    }
+    const all = LS.get("requests", []);
+    if (all.some((r) => r.email === e && r.status === "pending")) {
+      throw new Error("We already have your request. We will message you shortly.");
+    }
+    const row = {
+      id: localRef("req"), name: String(name).trim(), email: e,
+      phone: String(phone).trim(), password, status: "pending",
+      admin_note: "", created_at: new Date().toISOString(),
+    };
+    LS.set("requests", [row, ...all]);
+    return { ok: true, email: e };
+  }
+  const { data, error } = await supabase.rpc("request_account", {
+    p_name: name, p_email: email, p_phone: phone, p_password: password,
+  });
+  if (error) throw error;
+  return data;
+}
+
+export async function fetchAccountRequests(status = "pending") {
+  const supabase = await getClient();
+  if (!supabase) {
+    const all = LS.get("requests", []);
+    return status === "pending"
+      ? all.filter((r) => r.status === "pending")
+      : all.filter((r) => r.status !== "pending");
+  }
+  const { data, error } = await supabase.rpc("admin_account_requests", { p_status: status });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function countPendingRequests() {
+  const supabase = await getClient();
+  if (!supabase) return LS.get("requests", []).filter((r) => r.status === "pending").length;
+  const { data, error } = await supabase.rpc("admin_pending_requests");
+  if (error) { console.error(error); return 0; }
+  return Number(data || 0);
+}
+
+/* Approving is two steps that must happen in this order: create the real login
+   first, then mark the request decided. The other way round would leave a
+   request marked approved with no account behind it, and the password already
+   wiped — unrecoverable without asking the customer to start again. */
+export async function decideAccountRequest(row, approve, note = "") {
+  const supabase = await getClient();
+  if (!supabase) {
+    if (approve) {
+      await createCustomer({
+        email: row.email, password: row.password, name: row.name, phone: row.phone,
+      });
+    }
+    LS.set("requests", LS.get("requests", []).map((r) => (r.id === row.id
+      ? { ...r, status: approve ? "approved" : "rejected", admin_note: note,
+          password: "", decided_at: new Date().toISOString() }
+      : r)));
+    return true;
+  }
+
+  if (approve) {
+    if (!row.password) throw new Error("That request no longer has a password. Ask the customer to send a new one.");
+    await createCustomer({
+      email: row.email, password: row.password, name: row.name, phone: row.phone,
+    });
+  }
+  const { error } = await supabase.rpc("decide_account_request", {
+    p_id: row.id, p_approve: approve, p_note: note,
+  });
+  if (error) throw error;
+  return true;
+}
+
 /* ----------------------------------------------------------------- admin */
 export async function fetchTopups(status = "pending") {
   const supabase = await getClient();

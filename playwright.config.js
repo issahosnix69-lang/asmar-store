@@ -30,7 +30,12 @@ export default defineConfig({
   webServer: {
     command: "npm run build && node scripts/serve-dist.mjs",
     url: "http://127.0.0.1:4173/",
-    reuseExistingServer: !process.env.CI,
+    /* Never reuse a server here: a stale one is almost certainly a build made
+       with the real keys, which makes the whole suite test the wrong thing. */
+    reuseExistingServer: false,
+    /* Builds the shop in localStorage mode regardless of .env.local, so these
+       tests can seed their own accounts and can never touch the live shop. */
+    env: { ASMAR_FORCE_LOCAL: "1" },
     timeout: 240_000,
     stdout: "pipe",
   },

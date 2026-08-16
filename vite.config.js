@@ -10,8 +10,26 @@ const onReplit = Boolean(
   process.env.REPL_ID || process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG,
 );
 
+/* Set by the Playwright run. The end-to-end suite drives the localStorage
+   implementation — it seeds accounts and balances directly — so it needs a
+   build that ignores whatever real keys happen to be in .env.local. Without
+   this the suite silently starts testing the live shop, fails on a test account
+   that does not exist there, and any test that wrote would write to production.
+   Overriding through `define` rather than env vars because it is unambiguous:
+   the values are substituted at build time and nothing can shadow them. */
+const forceLocal = Boolean(process.env.ASMAR_FORCE_LOCAL);
+
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+
+  ...(forceLocal
+    ? {
+        define: {
+          "import.meta.env.VITE_SUPABASE_URL": '""',
+          "import.meta.env.VITE_SUPABASE_ANON_KEY": '""',
+        },
+      }
+    : {}),
 
   server: {
     port: 5173,

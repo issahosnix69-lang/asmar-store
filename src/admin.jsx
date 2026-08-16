@@ -19,6 +19,7 @@ import {
   fetchTopups, countPendingTopups, decideTopup,
   fetchCustomers, adjustBalance, setCustomerActive, createCustomer,
   runDiagnostics, receiptUrl,
+  fetchAccountRequests, decideAccountRequest, countPendingRequests,
 } from "./backend.js";
 import { SEED_CATEGORIES, SEED_FAQ, SEED_PAGES } from "./seed.js";
 
@@ -189,6 +190,7 @@ export default function Admin({
   const [notAdmin, setNotAdmin] = useState(false);
   const [tab, setTab] = useState("overview");
   const [pending, setPending] = useState(0);
+  const [pendingReqs, setPendingReqs] = useState(0);
   const openOrders = orders.filter((o) => o.status === "New" || o.status === "Awaiting payment").length;
   /* Which language of the customer-facing copy is being edited. Only content
      fields respond to it — the admin's own labels stay in English. */
@@ -224,7 +226,10 @@ export default function Admin({
   useEffect(() => {
     if (!authed) return;
     let alive = true;
-    const tick = () => countPendingTopups().then((n) => { if (alive) setPending(n); }).catch(() => {});
+    const tick = () => {
+      countPendingTopups().then((n) => { if (alive) setPending(n); }).catch(() => {});
+      countPendingRequests().then((n) => { if (alive) setPendingReqs(n); }).catch(() => {});
+    };
     tick();
     const id = setInterval(tick, 30000);
     return () => { alive = false; clearInterval(id); };
@@ -277,7 +282,11 @@ export default function Admin({
     );
   }
 
-  const badgeFor = (k) => (k === "topups" ? pending : k === "orders" ? openOrders : 0);
+  const badgeFor = (k) =>
+    k === "topups" ? pending
+    : k === "orders" ? openOrders
+    : k === "customers" ? pendingReqs
+    : 0;
 
   const navItem = (k, label, Icon, compact) => {
     const on = tab === k;
@@ -805,6 +814,171 @@ function AdminTopups({ onCountChange, whatsapp }) {
 }
 
 /* ================================================================== customers */
+/* Requests waiting for a decision.
+ *
+ * Approving does two things in a required order: create the real login through
+ * the Edge Function, then mark the request decided — which wipes the stored
+ * password. The other order would leave a request marked approved, its password
+ * already gone, and no account behind it. */
+function AccountRequests({ onApproved, whatsapp }) {
+  const [rows, setRows] = useState([]);
+  const [view, setView] = useState("pending");
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState(null);
+  const [notes, setNotes] = useState({});
+  const [err, setErr] = useState("");
+  const [done, setDone] = useState(null);
+
+  const load = async (which = view) => {
+    setLoading(true);
+    try { setRows(await fetchAccountRequests(which)); }
+    catch (e) { console.error(e); setErr(e?.message || "Could not load requests."); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { load(view); /* eslint-disable-next-line */ }, [view]);
+
+  const decide = async (row, approve) => {
+    if (busyId) return;
+    setBusyId(row.id); setErr(""); setDone(null);
+    try {
+      await decideAccountRequest(row, approve, (notes[row.id] || "").trim());
+      /* Shown once, right after approving: this is the only moment the password
+         is still in hand, and the customer has to be told it. */
+      if (approve) setDone({ email: row.email, password: row.password, name: row.name, phone: row.phone });
+      await load(view);
+      onApproved?.();
+    } catch (e) {
+      setErr(e?.message || "Could not action that request.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const when = (s) => new Date(s).toLocaleString();
+  if (!loading && view === "pending" && rows.length === 0 && !done) return null;
+
+  return (
+    <div className="px-4 py-4 mb-5" style={cardStyle}>
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        <p style={{ ...labelStyle, margin: 0 }}>
+          Account requests{view === "pending" && rows.length ? ` · ${rows.length} waiting` : ""}
+        </p>
+        <div className="flex gap-2 ms-auto">
+          {[["pending", "Waiting"], ["decided", "History"]].map(([k, label]) => (
+            <button key={k} onClick={() => setView(k)} className="press"
+              style={{ padding: "5px 12px", borderRadius: 999, fontSize: 11.5,
+                       background: view === k ? T.tint : "transparent",
+                       color: view === k ? T.brandText : T.inkSoft,
+                       border: `1px solid ${view === k ? T.tintDeep : T.line}` }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {done && (
+        <div className="px-3.5 py-3 mb-3" style={{ background: T.tint, borderRadius: 10 }}>
+          <p style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.6, marginBottom: 8 }}>
+            Account made. Send them this — it is the only time the password is shown.
+          </p>
+          <p className="mb-2" style={{ fontFamily: "monospace", fontSize: 13, color: T.brandText }}>
+            {done.email} · {done.password}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => navigator.clipboard?.writeText(
+              `Your Asmar Store login\nEmail: ${done.email}\nPassword: ${done.password}`)}
+              className="press" style={{ fontSize: 11.5, letterSpacing: ".06em", textTransform: "uppercase",
+                       color: T.brandText, border: `1px solid ${T.tintDeep}`, borderRadius: 8, padding: "6px 12px" }}>
+              <Copy size={12} /> Copy
+            </button>
+            {done.phone && (
+              <a href={`https://wa.me/${String(done.phone).replace(/\D/g, "")}?text=${encodeURIComponent(
+                `Your Asmar Store login\nEmail: ${done.email}\nPassword: ${done.password}`)}`}
+                target="_blank" rel="noopener noreferrer" className="press"
+                style={{ fontSize: 11.5, letterSpacing: ".06em", textTransform: "uppercase",
+                         color: T.brandText, border: `1px solid ${T.tintDeep}`, borderRadius: 8, padding: "6px 12px" }}>
+                Send on WhatsApp
+              </a>
+            )}
+            <button onClick={() => setDone(null)} className="press ms-auto"
+              style={{ fontSize: 11.5, color: T.inkSoft }}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+      {err && (
+        <p className="flex items-start gap-1.5 mb-3" style={{ fontSize: 12.5, color: T.brandText }}>
+          <AlertTriangle size={13} className="shrink-0" style={{ marginTop: 1 }} /> {err}
+        </p>
+      )}
+
+      {loading ? (
+        <p style={{ fontSize: 12.5, color: T.inkSoft }}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p style={{ fontSize: 12.5, color: T.inkSoft }}>
+          {view === "pending" ? "Nothing waiting." : "No decided requests yet."}
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {rows.map((r) => (
+            <div key={r.id} className="px-3.5 py-3"
+              style={{ background: T.surface2, border: `1px solid ${T.line}`, borderRadius: 10 }}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div style={{ fontSize: 14, fontWeight: 500 }}>{r.name}</div>
+                  <div style={{ fontSize: 12, color: T.inkSoft }}>{r.email}</div>
+                  <div style={{ fontSize: 12, color: T.inkSoft }}>
+                    {whatsapp !== undefined && r.phone ? (
+                      <a href={`https://wa.me/${String(r.phone).replace(/\D/g, "")}`} target="_blank"
+                        rel="noopener noreferrer" style={{ color: T.brandText }}>{r.phone}</a>
+                    ) : r.phone}
+                    {" · "}{when(r.created_at)}
+                  </div>
+                  {r.admin_note && (
+                    <div style={{ fontSize: 12, color: T.inkSoft, marginTop: 3 }}>“{r.admin_note}”</div>
+                  )}
+                </div>
+                {r.status !== "pending" && (
+                  <span style={{ fontSize: 10.5, letterSpacing: ".08em", textTransform: "uppercase",
+                                 padding: "3px 9px", borderRadius: 999,
+                                 background: r.status === "approved" ? T.ok : "transparent",
+                                 color: r.status === "approved" ? "#fff" : T.inkSoft,
+                                 border: r.status === "approved" ? "none" : `1px solid ${T.line}` }}>
+                    {r.status}
+                  </span>
+                )}
+              </div>
+
+              {r.status === "pending" && (
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <input value={notes[r.id] || ""} placeholder="Note (optional)"
+                    onChange={(e) => setNotes({ ...notes, [r.id]: e.target.value })}
+                    className="flex-1 min-w-0 px-3 py-2 outline-none input"
+                    style={{ ...inputStyle, fontSize: 12.5 }} />
+                  <button onClick={() => decide(r, true)} disabled={busyId === r.id}
+                    className="press flex items-center gap-1.5 px-3 py-2"
+                    style={{ fontSize: 11.5, letterSpacing: ".06em", textTransform: "uppercase",
+                             color: "#fff", background: T.ok, borderRadius: 8,
+                             opacity: busyId === r.id ? 0.6 : 1 }}>
+                    {busyId === r.id ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                    Approve
+                  </button>
+                  <button onClick={() => decide(r, false)} disabled={busyId === r.id}
+                    className="press px-3 py-2"
+                    style={{ fontSize: 11.5, letterSpacing: ".06em", textTransform: "uppercase",
+                             color: T.inkSoft, border: `1px solid ${T.line}`, borderRadius: 8 }}>
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AdminCustomers({ whatsapp }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -875,12 +1049,15 @@ function AdminCustomers({ whatsapp }) {
 
   return (
     <>
+      {/* ---- requests waiting ---- */}
+      <AccountRequests onApproved={load} whatsapp={whatsapp} />
+
       {/* ---- create a login ---- */}
       <div className="px-4 py-4 mb-5" style={cardStyle}>
         <p style={{ ...labelStyle, marginBottom: 8 }}>Create a customer login</p>
         <p style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.65, marginBottom: 12 }}>
-          Customers cannot sign themselves up. They message you, you make the account here, and
-          you send them the email and password on WhatsApp.
+          Customers cannot sign themselves up. Either approve a request above, or make the
+          account here by hand and send them the email and password on WhatsApp.
         </p>
         <div className="grid sm:grid-cols-2 gap-2.5">
           <Field label="Email" type="email" value={form.email}

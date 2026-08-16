@@ -153,6 +153,43 @@ test.describe("browse to order", () => {
   });
 });
 
+test.describe("requesting an account", () => {
+  test("a stranger can send their details in one go", async ({ page }) => {
+    await page.goto("/login");
+    await page.getByRole("link", { name: /request an account/i }).click();
+    await expect(page).toHaveURL(/\/request$/);
+
+    await page.getByLabel(/your name/i).fill("Rami Asmar");
+    await page.getByLabel(/email/i).fill("rami.e2e@example.com");
+    await page.getByLabel(/whatsapp number/i).fill("+961 70 123 456");
+    await page.getByLabel(/choose a password/i).fill("hunter22");
+    await page.getByLabel(/repeat the password/i).fill("hunter22");
+    await page.getByRole("button", { name: /send request/i }).click();
+
+    await expect(page.getByText(/request sent/i)).toBeVisible();
+    await expect(page.getByText(/rami\.e2e@example\.com/)).toBeVisible();
+  });
+
+  test("is reachable from a full cart", async ({ page }) => {
+    await page.goto("/p/netflix");
+    await page.getByRole("button", { name: "Add to cart", exact: true }).click();
+    await expect(page.getByRole("link", { name: /request an account/i })).toBeVisible();
+  });
+
+  test("will not send a mismatched password", async ({ page }) => {
+    await page.goto("/request");
+    await page.getByLabel(/your name/i).fill("Rami");
+    await page.getByLabel(/email/i).fill("rami@example.com");
+    await page.getByLabel(/whatsapp number/i).fill("70123456");
+    await page.getByLabel(/choose a password/i).fill("hunter22");
+    await page.getByLabel(/repeat the password/i).fill("hunter23");
+    await page.getByRole("button", { name: /send request/i }).click();
+
+    await expect(page.getByText(/do not match/i)).toBeVisible();
+    await expect(page.getByText(/request sent/i)).toHaveCount(0);
+  });
+});
+
 test.describe("bilingual", () => {
   test("flips to Arabic and back", async ({ page }) => {
     await page.goto("/");

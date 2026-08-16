@@ -8,7 +8,7 @@ import {
 import {
   backend, auth, fetchCatalog, saveCatalog, fetchSettings, saveSettings,
   placeOrder as submitOrder, updateOrderStatus, startWhishPayment, fetchOrderStatus,
-  fetchAccount, submitTopup,
+  fetchAccount, submitTopup, requestAccount,
 } from "./src/backend.js";
 import {
   T, display, script, ui, WRAP,
@@ -1173,12 +1173,129 @@ function LoginPage({ whatsapp, onDone }) {
 
         <div className="mt-8 pt-6 text-center" style={{ borderTop: `1px solid ${T.line}` }}>
           <p style={{ fontSize: 13.5, color: T.inkSoft, marginBottom: 12 }}>{t("acc.noAccount")}</p>
+          {/* The form is the primary path now — it reaches Ali complete, at any
+              hour, instead of starting a conversation he has to finish by hand.
+              WhatsApp stays as the fallback for anyone who would rather talk. */}
+          <a href="/request" className="block"><Btn full>{t("req.cta")}</Btn></a>
           {whatsapp && (
             <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(t("acc.askMessage"))}`}
-              target="_blank" rel="noopener noreferrer">
+              target="_blank" rel="noopener noreferrer" className="block mt-2">
               <Btn variant="ghost" full><MessageCircle size={15} /> {t("acc.askForOne")}</Btn>
             </a>
           )}
+        </div>
+      </div>
+    </main>
+  );
+}
+
+/* Customers still do not sign themselves up — Ali creates every login. This
+   form only replaces the WhatsApp round-trip where he asks for name, email and
+   phone one message at a time, and it means a customer at 2am is a request
+   waiting in the morning rather than a sale lost to a slow reply. */
+function RequestAccountPage({ whatsapp, onDone }) {
+  const { t } = useT();
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", confirm: "" });
+  const [touched, setTouched] = useState({});
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(null);
+
+  const set = (k) => (e) => { setForm({ ...form, [k]: e.target.value }); setErr(""); };
+  const blur = (k) => () => setTouched((x) => ({ ...x, [k]: true }));
+
+  /* Checked here so a mistake is caught before the round-trip, and again in
+     request_account() because anything a stranger can call has to validate on
+     the server too. */
+  const problems = {
+    name: form.name.trim() ? "" : t("req.errName"),
+    email: emailOk(form.email) ? "" : t("req.errEmail"),
+    phone: phoneOk(form.phone) ? "" : t("req.errPhone"),
+    password: form.password.length >= 6 ? "" : t("req.errPassword"),
+    confirm: form.password === form.confirm ? "" : t("req.errConfirm"),
+  };
+  const valid = !Object.values(problems).some(Boolean);
+  const errorFor = (k) => (touched[k] ? problems[k] : "");
+
+  const submit = async (e) => {
+    e?.preventDefault();
+    if (!valid) return setTouched({ name: true, email: true, phone: true, password: true, confirm: true });
+    if (busy) return;
+    setBusy(true); setErr("");
+    try {
+      const res = await requestAccount(form);
+      setSent(res?.email || form.email.trim().toLowerCase());
+      trackEvent("Account requested");
+      onDone?.();
+    } catch (ex) {
+      setErr(ex?.message || "Could not send that. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (sent) {
+    const msg = t("req.tellUsMessage", { email: sent });
+    return (
+      <main className="px-4 sm:px-6 py-20 text-center" style={{ maxWidth: 460, margin: "0 auto" }}>
+        <div className="flex items-center justify-center pop mx-auto"
+          style={{ width: 52, height: 52, borderRadius: 26, background: T.tint, marginBottom: 18 }}>
+          <Check size={24} style={{ color: T.ok }} />
+        </div>
+        <h1 style={{ fontFamily: display, fontSize: "clamp(24px, 6vw, 34px)", lineHeight: 1.3 }}>{t("req.sent")}</h1>
+        <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 12 }}>
+          {t("req.sentBody", { email: sent })}
+        </p>
+        <div className="flex flex-col gap-2.5 mt-8">
+          {whatsapp && (
+            <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(msg)}`}
+              target="_blank" rel="noopener noreferrer">
+              <Btn full variant="dark"><MessageCircle size={15} /> {t("req.tellUs")}</Btn>
+            </a>
+          )}
+          <a href="/login"><Btn full variant="ghost">{t("req.backToSignIn")}</Btn></a>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="px-4 sm:px-6 py-12" style={{ maxWidth: 460, margin: "0 auto" }}>
+      <div data-reveal>
+        <Eyebrow style={{ marginBottom: 12 }}>{t("acc.account")}</Eyebrow>
+        <h1 style={{ fontFamily: display, fontSize: "clamp(28px, 6.5vw, 42px)", lineHeight: 1.15, fontWeight: 400 }}>
+          {t("req.title")}
+        </h1>
+        <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 12 }}>{t("req.body")}</p>
+
+        <form className="flex flex-col gap-3 mt-8" onSubmit={submit}>
+          <Field label={t("req.name")} value={form.name} onChange={set("name")} onBlur={blur("name")}
+            error={errorFor("name")} placeholder={t("req.namePlaceholder")} autoComplete="name" />
+          <Field label={t("req.email")} type="email" value={form.email} onChange={set("email")} onBlur={blur("email")}
+            error={errorFor("email")} hint={t("req.emailHint")} placeholder="you@email.com"
+            dir="ltr" autoComplete="email" />
+          <Field label={t("req.phone")} value={form.phone} onChange={set("phone")} onBlur={blur("phone")}
+            error={errorFor("phone")} placeholder="+961 70 000 000" inputMode="tel" dir="ltr" autoComplete="tel" />
+          <Field label={t("req.password")} type="password" value={form.password} onChange={set("password")}
+            onBlur={blur("password")} error={errorFor("password")} hint={t("req.passwordHint")}
+            dir="ltr" autoComplete="new-password" />
+          <Field label={t("req.confirm")} type="password" value={form.confirm} onChange={set("confirm")}
+            onBlur={blur("confirm")} error={errorFor("confirm")} dir="ltr" autoComplete="new-password" />
+
+          {err && (
+            <p className="flex items-start gap-1.5" style={{ fontSize: 12.5, color: T.brandText }}>
+              <AlertTriangle size={14} className="shrink-0" style={{ marginTop: 1 }} /> {err}
+            </p>
+          )}
+
+          <Btn full type="submit" style={{ opacity: busy ? 0.6 : 1 }}>
+            {busy ? t("req.sending") : t("req.submit")}
+          </Btn>
+        </form>
+
+        <div className="mt-8 pt-6 text-center" style={{ borderTop: `1px solid ${T.line}` }}>
+          <p style={{ fontSize: 13.5, color: T.inkSoft, marginBottom: 12 }}>{t("req.haveAccount")}</p>
+          <a href="/login"><Btn variant="ghost" full>{t("acc.signIn")}</Btn></a>
         </div>
       </div>
     </main>
@@ -1751,12 +1868,12 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                         {t("cart.signInBody")}
                       </p>
                       <Btn full onClick={onSignIn}>{t("cart.signIn")}</Btn>
-                      {settings.whatsapp && (
-                        <a href={`https://wa.me/${settings.whatsapp}?text=${encodeURIComponent(t("acc.askMessage"))}`}
-                          target="_blank" rel="noopener noreferrer" className="block mt-2">
-                          <Btn full variant="ghost"><MessageCircle size={15} /> {t("acc.askForOne")}</Btn>
-                        </a>
-                      )}
+                      {/* Someone stopped here with a full cart is the most
+                          valuable person to give an account to, so the request
+                          form is one tap away rather than a WhatsApp detour. */}
+                      <a href="/request" onClick={close} className="block mt-2">
+                        <Btn full variant="ghost">{t("req.cta")}</Btn>
+                      </a>
                       <p className="text-center" style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 10 }}>
                         {t("cart.keepCart")}
                       </p>
@@ -2471,6 +2588,15 @@ function Store() {
 
   if (route === "/track") return chrome(<TrackPage />);
   if (pageRoute) return chrome(<PolicyPage pageKey={pageRoute[1]} settings={settings} />);
+
+  /* Someone already signed in has no use for this page, and landing on it after
+     a session restore would be confusing. */
+  if (route === "/request") {
+    return session
+      ? chrome(<AccountPage account={account} loading={accountLoading} whatsapp={settings.whatsapp}
+                 onSignOut={async () => { await auth.signOut(); setSession(null); go("/"); }} />)
+      : chrome(<RequestAccountPage whatsapp={settings.whatsapp} />);
+  }
 
   if (route === "/login") {
     return session

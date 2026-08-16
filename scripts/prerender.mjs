@@ -41,8 +41,11 @@ const { metaFor, isNoindex, slugify, SITE_URL } = await import("../src/seo.js");
 
 /* ------------------------------------------------------------------ content */
 async function loadShop() {
-  const url = process.env.VITE_SUPABASE_URL;
-  const key = process.env.VITE_SUPABASE_ANON_KEY;
+  /* The Playwright build forces the app into localStorage mode, so the
+     prerendered pages have to describe the seed catalogue too — otherwise the
+     served HTML and the rendered page disagree about what is in the shop. */
+  const url = process.env.ASMAR_FORCE_LOCAL ? "" : process.env.VITE_SUPABASE_URL;
+  const key = process.env.ASMAR_FORCE_LOCAL ? "" : process.env.VITE_SUPABASE_ANON_KEY;
 
   if (!url || !key || url.includes("your-project")) {
     console.log("  · no Supabase keys — prerendering from the seed catalogue");

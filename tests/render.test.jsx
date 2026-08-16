@@ -204,6 +204,102 @@ describe("the cart", () => {
   });
 });
 
+describe("requesting an account", () => {
+  it("is reachable from the sign-in page", async () => {
+    at("/login");
+    render(<AsmarStore />);
+    await booted();
+    expect(await screen.findByRole("link", { name: /request an account/i })).toBeInTheDocument();
+  });
+
+  it("renders the form", async () => {
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+    expect(await screen.findByLabelText(/your name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/whatsapp number/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/choose a password/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/repeat the password/i)).toBeInTheDocument();
+  });
+
+  it("stays out of the search index", async () => {
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+    /* Nothing here is worth ranking and the page is pure form. */
+    await waitFor(() => expect(document.title).toMatch(/asmar/i));
+  });
+
+  it("refuses to submit until the fields make sense", async () => {
+    const user = userEvent.setup();
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+
+    await user.click(await screen.findByRole("button", { name: /send request/i }));
+
+    /* Clicking while invalid reveals what is missing rather than doing
+       nothing — a dead button with no explanation loses the customer. */
+    await waitFor(() => {
+      expect(document.body.textContent).toMatch(/please enter your name/i);
+      expect(document.body.textContent).toMatch(/valid email/i);
+    });
+    expect(JSON.parse(localStorage.getItem("asmar:requests") || "[]")).toHaveLength(0);
+  });
+
+  it("catches a mistyped password before sending", async () => {
+    const user = userEvent.setup();
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+
+    await user.type(await screen.findByLabelText(/your name/i), "Rami");
+    await user.type(screen.getByLabelText(/email/i), "rami@example.com");
+    await user.type(screen.getByLabelText(/whatsapp number/i), "70123456");
+    await user.type(screen.getByLabelText(/choose a password/i), "hunter22");
+    await user.type(screen.getByLabelText(/repeat the password/i), "hunter23");
+    await user.click(screen.getByRole("button", { name: /send request/i }));
+
+    await waitFor(() => expect(document.body.textContent).toMatch(/do not match/i));
+    expect(JSON.parse(localStorage.getItem("asmar:requests") || "[]")).toHaveLength(0);
+  });
+
+  it("sends a good request and confirms it", async () => {
+    const user = userEvent.setup();
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+
+    await user.type(await screen.findByLabelText(/your name/i), "Rami Asmar");
+    await user.type(screen.getByLabelText(/email/i), "rami@example.com");
+    await user.type(screen.getByLabelText(/whatsapp number/i), "70123456");
+    await user.type(screen.getByLabelText(/choose a password/i), "hunter22");
+    await user.type(screen.getByLabelText(/repeat the password/i), "hunter22");
+    await user.click(screen.getByRole("button", { name: /send request/i }));
+
+    await waitFor(() => expect(document.body.textContent).toMatch(/request sent/i));
+
+    const stored = JSON.parse(localStorage.getItem("asmar:requests"));
+    expect(stored).toHaveLength(1);
+    expect(stored[0].email).toBe("rami@example.com");
+    expect(stored[0].status).toBe("pending");
+  });
+
+  it("sends a signed-in visitor to their account instead", async () => {
+    localStorage.setItem("asmar:accounts", JSON.stringify([
+      { id: "cus-1", email: "rami@example.com", password: "pw", name: "Rami", active: true },
+    ]));
+    localStorage.setItem("asmar:session", JSON.stringify({
+      user: { id: "cus-1", email: "rami@example.com", name: "Rami", isAdmin: false },
+    }));
+    at("/request");
+    render(<AsmarStore />);
+    await booted();
+    await waitFor(() => expect(document.body.textContent).not.toMatch(/repeat the password/i));
+  });
+});
+
 describe("language", () => {
   it("flips the whole document to Arabic and back", async () => {
     const user = userEvent.setup();
