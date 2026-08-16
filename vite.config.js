@@ -1,0 +1,74 @@
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+/* Replit sets several of these; any one of them means we are in a repl rather
+   than on a laptop. Checking more than one because which are present has
+   changed between Replit's generations, and getting this wrong means the dev
+   server binds localhost and the webview just spins forever. */
+const onReplit = Boolean(
+  process.env.REPL_ID || process.env.REPLIT_DEV_DOMAIN || process.env.REPL_SLUG,
+);
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+
+  server: {
+    port: 5173,
+    /* Vite's default is to walk up to the next free port when 5173 is taken —
+       fine on a laptop, wrong here. .replit maps 5173 to the repl's public URL,
+       so a server that quietly moved to 5186 is a server the webview cannot
+       find, with nothing in the output saying why. Fail loudly instead: the
+       error names the port, and killing the stale process is obvious. */
+    strictPort: onReplit,
+    /* 0.0.0.0 in a container: bound to localhost, Replit's proxy cannot reach
+       the server at all. */
+    host: onReplit ? "0.0.0.0" : "localhost",
+    /* No browser to open inside a container. */
+    open: !onReplit,
+    ...(onReplit
+      ? {
+          /* Vite rejects unknown Host headers by default — genuine protection
+             against DNS rebinding, and the right default on a laptop where the
+             dev server shares a network with other machines.
+
+             Replit serves each repl from a generated subdomain that changes
+             between repls and between Replit's URL schemes, so an allowlist
+             here is a standing source of "Blocked request. This host is not
+             allowed." For a dev server that only exists inside an ephemeral
+             container, reachable only through Replit's own authenticated
+             proxy, the check is not buying anything. Off, and only here —
+             local development keeps the protection. */
+          allowedHosts: true,
+          /* The browser reaches the repl over HTTPS on 443, not port 5173
+             directly, so the hot-reload socket has to be told where to connect
+             or every edit needs a manual refresh. */
+          hmr: { clientPort: 443, protocol: "wss" },
+        }
+      : {}),
+  },
+
+  preview: {
+    port: 4173,
+    host: onReplit ? "0.0.0.0" : "localhost",
+    ...(onReplit ? { allowedHosts: true } : {}),
+  },
+
+  build: {
+    rollupOptions: {
+      output: {
+        /* React changes when React changes, which is roughly never; the shop
+           changes whenever Ali edits it. Keeping them in separate files means a
+           copy edit does not invalidate the 140 KB of framework a returning
+           customer already has cached.
+
+           Supabase is not listed here on purpose — it is reached through a
+           dynamic import in src/backend.js, so Rollup already gives it its own
+           chunk that only downloads when the keys are configured. */
+        manualChunks: {
+          react: ["react", "react-dom"],
+        },
+      },
+    },
+  },
+});

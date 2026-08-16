@@ -1,0 +1,46 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Netlify picks its own default Node otherwise, and it lags. @supabase/
+  # supabase-js requires >=22, so an older default produces a build full of
+  # engine warnings and, on Node 18, a failure. Pinned here as well as in
+  # package.json engines and .nvmrc so none of the three can drift alone.
+  NODE_VERSION = "22"
+
+# The shop now uses real paths (/p/netflix) rather than hash fragments, so a
+# customer opening a shared link asks the server for a file that does not exist.
+# Serve the app for anything that is not a real file and let the router resolve
+# it. Status 200, not 301: a redirect would change the URL in the address bar
+# and lose the page they were sent.
+#
+# Prerendered pages (dist/p/netflix/index.html and friends, written by
+# scripts/prerender.mjs) are real files, so they are served directly and never
+# reach this rule — which is the whole point, because those are the ones
+# carrying the per-page title and description a crawler reads.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=()"
+
+# Hashed filenames, so these can never go stale.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# The HTML shells must not be cached hard, or a customer keeps being handed the
+# previous deploy's asset names after a release.
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

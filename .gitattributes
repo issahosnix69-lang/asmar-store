@@ -1,0 +1,27 @@
+# This project is edited on Windows and on Replit's Linux containers. Without
+# this, every file committed from one looks entirely rewritten to the other and
+# the diffs become useless.
+#
+# Text files are normalised to LF in the repository. Git still gives Windows
+# whatever its core.autocrlf is set to in the working copy.
+* text=auto eol=lf
+
+# Shell scripts and Nix/Replit config must keep LF even on Windows — a CRLF
+# shebang line makes Linux refuse to run the script.
+*.sh      text eol=lf
+*.mjs     text eol=lf
+.replit   text eol=lf
+.nvmrc    text eol=lf
+
+# Binary: never touch these.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.webp    binary
+*.ico     binary
+*.woff    binary
+*.woff2   binary
+
+# Generated. Collapsed in pull requests so a lockfile change does not bury a
+# real one.
+package-lock.json linguist-generated=true

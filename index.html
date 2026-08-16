@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>The Asmar Store — Subscriptions, delivered in minutes</title>
+    <meta
+      name="description"
+      content="Netflix, Spotify, Shahid VIP, Canva and more — delivered to your WhatsApp in minutes. Tripoli, Lebanon. Cash on delivery or pay online."
+    />
+    <meta name="theme-color" content="#0C0A0B" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FDF7F5" media="(prefers-color-scheme: light)" />
+
+    <!-- Paint the saved theme before React mounts. Without this the page
+         flashes light for a frame on every load, which looks broken on a
+         shop whose default is dark. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("asmar:theme") || "dark";
+          document.documentElement.setAttribute("data-theme", t);
+          document.documentElement.style.colorScheme = t;
+          document.documentElement.style.background = t === "dark" ? "#0C0A0B" : "#FDF7F5";
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "dark");
+          document.documentElement.style.background = "#0C0A0B";
+        }
+      })();
+    </script>
+
+    <!-- Fonts.
+         These used to be injected by React at runtime, which meant the request
+         did not even start until the bundle had downloaded and executed — the
+         headline was the last thing on the page to become readable. In the head
+         the browser starts fetching them while it is still parsing HTML.
+
+         Only the Latin faces load here, plus Tajawal 400 for the one Arabic
+         word on the language toggle. The full Arabic set (Amiri, the heavier
+         Tajawal weights) is ~200 KB and is fetched by GlobalStyle the moment
+         the shop is actually in Arabic, so English visitors never pay for it. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:opsz,wght@6..96,400;6..96,500;6..96,700&family=Pinyon+Script&family=Jost:wght@300;400;500;600&family=Tajawal:wght@400&display=swap"
+    />
+
+    <!-- Link previews (WhatsApp, Instagram, Facebook).
+         og:url and og:image must be absolute URLs on the live domain.
+         If you move to a custom domain later, update all four below. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="The Asmar Store" />
+    <meta property="og:title" content="The Asmar Store — Subscriptions, delivered in minutes" />
+    <meta
+      property="og:description"
+      content="Netflix, Spotify, Shahid VIP, Canva and more — delivered to your WhatsApp in minutes. Tripoli, Lebanon."
+    />
+    <meta property="og:url" content="https://asmar-store.netlify.app/" />
+    <meta property="og:image" content="https://asmar-store.netlify.app/og.png" />
+    <meta property="og:image:width" content="1500" />
+    <meta property="og:image:height" content="788" />
+    <meta property="og:locale" content="en_US" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="The Asmar Store — Subscriptions, delivered in minutes" />
+    <meta
+      name="twitter:description"
+      content="Netflix, Spotify, Shahid VIP, Canva and more — delivered to your WhatsApp in minutes."
+    />
+    <meta name="twitter:image" content="https://asmar-store.netlify.app/og.png" />
+
+    <!-- Monogram favicon, inline so there is no extra request -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%239B1B30'/%3E%3Ctext x='32' y='45' font-family='Georgia,serif' font-size='38' fill='%23FDF7F5' text-anchor='middle'%3EA%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

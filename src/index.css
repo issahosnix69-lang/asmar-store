@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+/* The component supplies its own brand fonts and colors via inline styles;
+   Tailwind is here only for the layout utilities it was authored against. */
+html,
+body,
+#root {
+  min-height: 100%;
+}

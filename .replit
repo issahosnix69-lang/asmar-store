@@ -1,0 +1,91 @@
+# Replit configuration for The Asmar Store.
+#
+# This file is TOML — comments are '#', never '//'.
+#
+# The dev server needs three things here that it does not need locally: it must
+# bind 0.0.0.0 rather than localhost, it must accept Replit's proxy hostname,
+# and HMR must be told the browser reaches it over 443. The first two live in
+# vite.config.js; the port mapping is below.
+
+# Node 22, not 20. @supabase/supabase-js requires >=22 and jsdom@30 requires
+# ^22.22.2; on 20 the shop still runs, because supabase-js is bundled for the
+# browser and never executes under Node, but `npm test` fails when jsdom loads.
+modules = ["nodejs-22"]
+entrypoint = "asmar-store.jsx"
+run = "npm run dev"
+
+hidden = [".config", "node_modules", "dist", "test-results", "playwright-report"]
+
+# Vite serves on 5173; Replit publishes it on the repl's public URL.
+[[ports]]
+localPort = 5173
+externalPort = 80
+
+# vite preview, used to check the built site including the prerendered pages.
+[[ports]]
+localPort = 4173
+externalPort = 3000
+
+[env]
+# Replit's file watcher and Vite's both watch the same tree; without this the
+# dev server can miss changes on larger edits.
+CHOKIDAR_USEPOLLING = "1"
+
+# The site is static once built, so a static deployment is the right shape —
+# no server to keep warm and nothing to pay for while idle.
+[deployment]
+deploymentTarget = "static"
+publicDir = "dist"
+build = ["npm", "run", "build"]
+
+[workflows]
+runButton = "Dev server"
+
+[[workflows.workflow]]
+name = "Dev server"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+# pkill first: a dev server left running from a previous press still holds 5173,
+# and Vite would otherwise start on 5174, 5186, wherever — a port the webview
+# is not mapped to, with no error to explain the blank page. '|| true' because
+# pkill exits non-zero when it finds nothing to kill, which is the normal case.
+args = "pkill -f 'vite' || true; npm install && npm run dev"
+
+[[workflows.workflow]]
+name = "Tests"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm test"
+
+# Use this if Vite reports a missing module inside its own dist/node/chunks,
+# e.g. "Cannot find module .../vite/dist/node/chunks/dep-XXXX.js".
+#
+# That file ships inside the ordinary vite tarball — it is not a native binary
+# and not a platform mismatch. A missing file *inside* a package means the
+# tarball was extracted incompletely, which on Replit means the install ran out
+# of disk or was interrupted. A plain `npm install` will not repair it, because
+# npm sees the package directory already present and skips it.
+#
+# The npm cache is cleared first because it is often several hundred megabytes
+# and is usually what filled the disk in the first place. package-lock.json is
+# deliberately kept: it already carries every platform's binaries, so deleting
+# it would only lose reproducibility.
+[[workflows.workflow]]
+name = "Clean reinstall"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm cache clean --force && rm -rf node_modules && npm ci --no-audit --no-fund && echo '--- disk after install ---' && du -sh node_modules && df -h /home/runner | tail -1"
+
+[[workflows.workflow]]
+name = "Build and preview"
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build && npx vite preview --host 0.0.0.0 --port 4173"
