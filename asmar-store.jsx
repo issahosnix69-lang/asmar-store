@@ -1380,7 +1380,7 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
     );
   }
 
-  const { profile, balance, entries, topups, orders } = account;
+  const { profile, balance, entries, topups, orders, isAdmin } = account;
   const name = profile?.name?.trim() || profile?.email || "";
   const dateOf = (s) => new Date(s).toLocaleDateString(lang === "ar" ? "ar-LB" : "en-GB");
 
@@ -1414,6 +1414,25 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
           <LogOut size={14} /> {t("acc.signOut")}
         </button>
       </div>
+
+      {/* ---- the way into the admin ---- */}
+      {/* An owner who lands here — from a bookmark, from the account icon, from
+          a session that restored — had no way through to the shop's admin
+          except typing the URL. One sign-in means one account, so the door
+          belongs on the account it opens for. */}
+      {isAdmin && (
+        <a href="/admin" data-reveal className="row flex items-center gap-3 px-4 py-3.5 mb-4"
+          style={{ background: T.tint, border: `1px solid ${T.tintDeep}`, borderRadius: 12 }}>
+          <span className="flex items-center justify-center shrink-0"
+            style={{ width: 34, height: 34, borderRadius: 9, background: T.surface, color: T.brandText }}>
+            <ShieldCheck size={16} />
+          </span>
+          <span className="flex-1 min-w-0" style={{ fontSize: 14, fontWeight: 500, color: T.ink }}>
+            {t("nav.admin")}
+          </span>
+          <Arrow size={16} className="shrink-0" style={{ color: T.brandText }} />
+        </a>
+      )}
 
       {/* ---- the balance ---- */}
       <div data-reveal className="relative overflow-hidden px-6 py-7 mb-4"

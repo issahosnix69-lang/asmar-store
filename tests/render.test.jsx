@@ -362,6 +362,40 @@ describe("one sign-in for admin and customer", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/"));
   });
 
+  it("gives an admin a way in from their account page", async () => {
+    /* The redirect on sign-in is not the only way someone arrives here — a
+       bookmark, the account icon, a restored session all land on /account. */
+    seedUser({ isAdmin: true });
+    localStorage.setItem("asmar:session", JSON.stringify({
+      user: { id: "u1", email: "ali@example.com", name: "Ali", isAdmin: true },
+    }));
+    at("/account");
+    render(<AsmarStore />);
+    await booted();
+
+    /* Scoped to <main>: the footer carries its own "Store admin" link on every
+       page, so an unscoped query matches whether this works or not. */
+    await waitFor(() => expect(document.querySelector("main")).toBeInTheDocument());
+    const link = await within(document.querySelector("main"))
+      .findByRole("link", { name: /store admin/i });
+    expect(link).toHaveAttribute("href", "/admin");
+  });
+
+  it("does not offer that link to a customer", async () => {
+    seedUser({ isAdmin: false });
+    localStorage.setItem("asmar:session", JSON.stringify({
+      user: { id: "u1", email: "ali@example.com", name: "Ali", isAdmin: false },
+    }));
+    at("/account");
+    render(<AsmarStore />);
+    await booted();
+
+    await waitFor(() => expect(document.body.textContent).toMatch(/balance/i));
+    expect(
+      within(document.querySelector("main")).queryByRole("link", { name: /store admin/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("keeps a wrong password out", async () => {
     const user = userEvent.setup();
     seedUser({ isAdmin: true });

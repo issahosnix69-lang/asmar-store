@@ -368,7 +368,9 @@ export async function fetchAccount() {
     const me = localAccounts().find((a) => a.id === id) || {};
     return {
       profile: { id, name: me.name || "", phone: me.phone || "", email: me.email || "" },
-      isAdmin: false,
+      /* Mirrors my_account() rather than hardcoding false, so the account page
+         can offer an admin their way into the admin in local mode too. */
+      isAdmin: !!me.isAdmin,
       balance: localBalanceOf(id),
       entries: localEntries().filter((w) => w.customerId === id).slice(0, 50),
       topups: LS.get("topups", []).filter((t) => t.customerId === id)
