@@ -239,3 +239,71 @@ test.describe("theme", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 });
+
+/* The subscription itself, delivered through the shop instead of over WhatsApp.
+ *
+ * Only the customer's half is driven here. The owner's half writes the same
+ * rows this seeds, and going through the admin would mean the PIN gate that
+ * only exists in local mode — a test of the stand-in rather than of the
+ * feature. */
+test.describe("delivered subscriptions", () => {
+  const SEED_DELIVERED_ORDER = `
+    localStorage.setItem("asmar:orders", JSON.stringify([
+      {
+        code: "ASM-TEST-0001",
+        customerId: "cus-e2e",
+        items: [
+          { id: "netflix", name: "Netflix", label: "4 months", qty: 1 },
+          { id: "spotify", name: "Spotify", label: "1 year",   qty: 1 }
+        ],
+        total: 24,
+        customer: { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cash" },
+        status: "Delivered",
+        paymentStatus: "paid",
+        delivery: [
+          { email: "rami.n847@mail.com", password: "Xk92mQvR", note: "Use the third profile" },
+          {}
+        ],
+        createdAt: new Date().toISOString()
+      }
+    ]));
+  `;
+
+  test("shows the account details, and only after they are opened", async ({ page }) => {
+    await page.addInitScript(SEED_DELIVERED_ORDER);
+    await signIn(page);
+
+    const row = page.getByRole("button", { name: /ASM-TEST-0001/ });
+    await expect(row).toBeVisible();
+    await expect(page.getByText(/Ready/)).toBeVisible();
+
+    /* Collapsed: a password must not be sitting on screen behind someone's
+       shoulder before they ask for it. */
+    await expect(page.getByText("Xk92mQvR")).toBeHidden();
+
+    await row.click();
+    await expect(page.getByText("rami.n847@mail.com")).toBeVisible();
+    await expect(page.getByText("Xk92mQvR")).toBeVisible();
+    await expect(page.getByText(/third profile/)).toBeVisible();
+
+    /* The second line was left empty by the owner, so it says so rather than
+       showing an unexplained gap. */
+    await expect(page.getByText(/still being prepared/i)).toBeVisible();
+  });
+
+  test("an order with nothing delivered stays a plain link", async ({ page }) => {
+    await page.addInitScript(`
+      localStorage.setItem("asmar:orders", JSON.stringify([
+        { code: "ASM-TEST-0002", customerId: "cus-e2e",
+          items: [{ id: "netflix", name: "Netflix", label: "1 month", qty: 1 }],
+          total: 5, customer: { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cash" },
+          status: "New", paymentStatus: "unpaid", delivery: [],
+          createdAt: new Date().toISOString() }
+      ]));
+    `);
+    await signIn(page);
+
+    await expect(page.getByRole("link", { name: /ASM-TEST-0002/ })).toBeVisible();
+    await expect(page.getByText(/Ready/)).toHaveCount(0);
+  });
+});

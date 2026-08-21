@@ -176,7 +176,7 @@ function SaveState({ state }) {
 }
 
 export default function Admin({
-  catalog, setCatalog, orders, setOrders, setOrderStatus,
+  catalog, setCatalog, orders, setOrders, setOrderStatus, setOrderDelivery,
   settings, setSettings, exit, saveError, saveState, onFlush,
 }) {
   const categories = settings.categories?.length ? settings.categories : SEED_CATEGORIES;
@@ -397,7 +397,9 @@ export default function Admin({
               <AdminOverview orders={orders} pending={pending} catalog={catalog}
                 settings={settings} go={setTab} />
             )}
-            {tab === "orders" && <AdminOrders orders={orders} setStatus={setOrderStatus} />}
+            {tab === "orders" && (
+              <AdminOrders orders={orders} setStatus={setOrderStatus} setDelivery={setOrderDelivery} />
+            )}
             {tab === "topups" && <AdminTopups onCountChange={setPending} whatsapp={settings.whatsapp} />}
             {tab === "customers" && <AdminCustomers whatsapp={settings.whatsapp} />}
             {tab === "products" && (
@@ -525,7 +527,116 @@ function AdminOverview({ orders, pending, catalog, settings, go }) {
 }
 
 /* ===================================================================== orders */
-function AdminOrders({ orders, setStatus }) {
+/* The subscription details for one line of an order.
+ *
+ * Deliberately three plain fields rather than one free-text box: the customer's
+ * side renders each with its own copy button, and "tap to copy the password"
+ * only works if the shop knows which part is the password. */
+function DeliveryEditor({ order, onSave }) {
+  const [rows, setRows] = useState(() => order.items.map((_, i) => order.delivery?.[i] || {}));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  const filled = (r) => !!(r.email?.trim() || r.password?.trim());
+  const complete = rows.every(filled);
+  const anything = rows.some(filled);
+  /* What is actually on the server, not what is typed but unsaved — telling
+     someone their order is ready while the details sit in an unsaved form is
+     the one mistake this button could cause. `some`, not `every`: half an
+     order is still something worth opening the shop for. */
+  const live = order.items.some((_, i) => filled(order.delivery?.[i] || {}));
+
+  const set = (i, key, value) =>
+    setRows((prev) => prev.map((r, n) => (n === i ? { ...r, [key]: value } : r)));
+
+  const save = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      const stamped = rows.map((r) =>
+        filled(r) ? { ...r, sent_at: r.sent_at || new Date().toISOString() } : {});
+      await onSave(stamped, complete);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setError(e?.message || "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = {
+    width: "100%", padding: "7px 10px", borderRadius: 7, fontSize: 13,
+    background: T.bg, border: `1px solid ${T.line}`, color: T.ink,
+  };
+
+  /* Nothing secret in the message. It says the order is ready and where to
+     look; the details stay behind the customer's own sign-in. */
+  const waHref = `https://wa.me/${String(order.customer.phone).replace(/\D/g, "")}`
+    + `?text=${encodeURIComponent(
+        `Your order ${order.code} is ready. Open your account on the shop to see the details:`
+        + ` ${window.location.origin}${import.meta.env.BASE_URL}account`)}`;
+
+  return (
+    <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.line}` }}>
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em", marginBottom: 8 }}>
+        Subscription details
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {order.items.map((item, i) => (
+          <div key={i} className="px-3 py-3" style={{ background: T.bg, borderRadius: 9, border: `1px solid ${T.line}` }}>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <span style={{ fontSize: 12.5, fontWeight: 500 }}>{item.name} {item.label}</span>
+              {filled(rows[i]) && (
+                <Check size={13} style={{ color: T.ok }} />
+              )}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              <input style={field} placeholder="Account email"
+                value={rows[i].email || ""} onChange={(e) => set(i, "email", e.target.value)} />
+              <input style={field} placeholder="Password"
+                value={rows[i].password || ""} onChange={(e) => set(i, "password", e.target.value)} />
+            </div>
+            <input style={{ ...field, marginTop: 8 }} placeholder="Note (optional) — e.g. use the third profile"
+              value={rows[i].note || ""} onChange={(e) => set(i, "note", e.target.value)} />
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <p className="flex items-start gap-1.5 mt-2" style={{ fontSize: 12, color: T.brandText }}>
+          <AlertTriangle size={13} className="shrink-0" style={{ marginTop: 1 }} /> {error}
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <Btn onClick={save} disabled={saving || !anything}>
+          {saving ? <Loader2 size={14} className="animate-spin" />
+                  : saved ? <Check size={14} />
+                  : null}
+          {complete ? "Save and mark delivered" : "Save"}
+        </Btn>
+
+        {/* Only once the customer has something to look at. */}
+        {live && (
+          <a href={waHref} target="_blank" rel="noopener noreferrer">
+            <Btn variant="ghost">Tell them on WhatsApp</Btn>
+          </a>
+        )}
+      </div>
+
+      {anything && !complete && (
+        <p style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 7 }}>
+          One line is still empty, so the status stays as it is. Fill them all to mark the order delivered.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AdminOrders({ orders, setStatus, setDelivery }) {
   const [filter, setFilter] = useState("All");
   const revenue = orders.filter((o) => o.status === "Delivered").reduce((s, o) => s + o.total, 0);
   const open = orders.filter((o) => o.status === "New" || o.status === "Awaiting payment").length;
@@ -599,6 +710,11 @@ function AdminOrders({ orders, setStatus }) {
                 </button>
               ))}
             </div>
+
+            <DeliveryEditor
+              order={o}
+              onSave={(rows, complete) => setDelivery(o.code, rows, o.items.length, complete)}
+            />
           </div>
         ))}
       </div>

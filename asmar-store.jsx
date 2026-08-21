@@ -3,12 +3,12 @@ import {
   ShoppingBag, Plus, Minus, X, Check, Trash2, Loader2, Receipt,
   Search, AlertTriangle, Sun, Moon, Zap, ShieldCheck, MessageCircle, Instagram,
   Star, ArrowRight, Home, Ticket, HelpCircle, Sparkles, Languages, ChevronDown, Clock,
-  User, Wallet, Upload, LogOut, ImagePlus,
+  User, Wallet, Upload, LogOut, ImagePlus, Copy,
 } from "lucide-react";
 import {
   backend, auth, fetchCatalog, saveCatalog, fetchSettings, saveSettings,
   placeOrder as submitOrder, updateOrderStatus, startWhishPayment, fetchOrderStatus,
-  fetchAccount, submitTopup, requestAccount,
+  fetchAccount, submitTopup, requestAccount, saveOrderDelivery,
 } from "./src/backend.js";
 import {
   T, display, script, ui, WRAP,
@@ -1432,6 +1432,147 @@ function RequestAccountForm({ whatsapp }) {
 const walletKindKey = { topup: "wal.topup", order: "wal.order", refund: "wal.refund", adjustment: "wal.adjustment" };
 const topupStatusKey = { pending: "wal.pending", approved: "wal.approved", rejected: "wal.rejected" };
 
+/* One value the customer has to get into a login box on another site. Tapping
+   is the whole point: these are passwords like "Xk92mQvR", and retyping one on
+   a phone keyboard is where people give up and message Ali instead. */
+function CopyLine({ label, value }) {
+  const { t } = useT();
+  const [done, setDone] = useState(false);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setDone(true);
+      setTimeout(() => setDone(false), 1600);
+    } catch {
+      /* Clipboard access can be refused outright. The value is on screen and
+         selectable either way, so this is a missing convenience, not a dead end. */
+    }
+  };
+
+  return (
+    <button onClick={copy} className="press w-full flex items-center gap-3 px-3 py-2.5 text-start"
+      style={{ background: T.bg, border: `1px solid ${T.line}`, borderRadius: 9 }}>
+      <span className="min-w-0 flex-1">
+        <span className="lbl block" style={{ fontSize: 10, letterSpacing: ".14em",
+                                             textTransform: "uppercase", color: T.inkSoft }}>
+          {label}
+        </span>
+        {/* Always left-to-right: an email or a password is never Arabic text,
+            and letting it inherit RTL reorders it into something wrong. */}
+        <Ltr className="block truncate" style={{ fontSize: 13.5, marginTop: 2 }}>{value}</Ltr>
+      </span>
+      <span className="shrink-0" style={{ color: done ? T.ok : T.brandText }}>
+        {done ? <Check size={15} /> : <Copy size={15} />}
+      </span>
+      <span className="sr-only">{done ? t("acc.copied") : t("acc.copy")}</span>
+    </button>
+  );
+}
+
+/* An order in the customer's own list.
+ *
+ * Two shapes, because an order is two different things at two moments. Before
+ * the owner has filled anything in it is a receipt, and it links to the payment
+ * status page the way it always did. Once the subscription details are there it
+ * becomes the thing the customer actually came back for, so it opens in place
+ * rather than sending them to another page to find it. */
+function OrderRow({ order }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+
+  const items = order.items || [];
+  const rows = order.delivery || [];
+  const has = (r) => !!(r && (r.email || r.password || r.note));
+  const ready = items.some((_, i) => has(rows[i]));
+
+  const summary = (
+    <>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <Ltr style={{ fontSize: 13, fontWeight: 500 }}>{order.code}</Ltr>
+          {ready && (
+            <span className="lbl" style={{ fontSize: 9.5, letterSpacing: ".12em",
+                                           textTransform: "uppercase", padding: "2px 7px",
+                                           borderRadius: 999, background: T.ok, color: "#fff" }}>
+              {t("acc.ready")}
+            </span>
+          )}
+        </div>
+        <Auto as="div" className="truncate" style={{ fontSize: 11.5, color: T.inkSoft }}>
+          {items.map((i) => `${i.name} ${i.label}`).join(" · ")}
+        </Auto>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <div className="text-end">
+          <div style={{ fontFamily: display, fontSize: 16 }}><Money v={order.total} /></div>
+          <div style={{ fontSize: 11, color: T.inkSoft }}>{order.status}</div>
+        </div>
+        {ready && (
+          <ChevronDown size={16} style={{ color: T.inkSoft, transition: "transform .2s",
+                                          transform: open ? "rotate(180deg)" : "none" }} />
+        )}
+      </div>
+    </>
+  );
+
+  const shell = {
+    background: T.surface, border: `1px solid ${ready ? T.tintDeep : T.line}`, borderRadius: 12,
+  };
+
+  if (!ready) {
+    return (
+      <a href={U(`/order/${encodeURIComponent(order.code)}`)}
+        className="row flex items-center justify-between gap-3 px-4 py-3" style={shell}>
+        {summary}
+      </a>
+    );
+  }
+
+  return (
+    <div style={shell}>
+      <button onClick={() => setOpen((v) => !v)} aria-expanded={open}
+        className="press w-full flex items-center justify-between gap-3 px-4 py-3 text-start">
+        {summary}
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 flex flex-col gap-3">
+          {items.map((item, i) => {
+            const d = rows[i] || {};
+            return (
+              <div key={i} className="px-3 py-3"
+                style={{ background: T.tint, borderRadius: 11, border: `1px solid ${T.tintDeep}` }}>
+                <Auto as="div" style={{ fontSize: 12.5, fontWeight: 500, marginBottom: 8 }}>
+                  {item.name} {item.label}
+                </Auto>
+
+                {has(d) ? (
+                  <div className="flex flex-col gap-2">
+                    {d.email && <CopyLine label={t("acc.loginEmail")} value={d.email} />}
+                    {d.password && <CopyLine label={t("acc.loginPassword")} value={d.password} />}
+                    {d.note && (
+                      <Auto as="p" style={{ fontSize: 12.5, color: T.inkSoft, lineHeight: 1.6 }}>
+                        {d.note}
+                      </Auto>
+                    )}
+                  </div>
+                ) : (
+                  /* A part-delivered order: the rest is genuinely still coming,
+                     and saying so beats an unexplained gap in the list. */
+                  <p style={{ fontSize: 12.5, color: T.inkSoft }}>{t("acc.stillComing")}</p>
+                )}
+              </div>
+            );
+          })}
+
+          <p style={{ fontSize: 11.5, color: T.inkSoft, lineHeight: 1.6 }}>{t("acc.keepPrivate")}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AccountPage({ account, loading, whatsapp, onSignOut }) {
   const { t, lang } = useT();
   if (loading || !account) {
@@ -1574,22 +1715,7 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
           <p style={{ fontSize: 14, color: T.inkSoft }}>{t("acc.noOrders")}</p>
         ) : (
           <div className="flex flex-col gap-2">
-            {orders.map((o) => (
-              <a key={o.code} href={U(`/order/${encodeURIComponent(o.code)}`)}
-                className="row flex items-center justify-between gap-3 px-4 py-3"
-                style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12 }}>
-                <div className="min-w-0">
-                  <Ltr style={{ fontSize: 13, fontWeight: 500 }}>{o.code}</Ltr>
-                  <Auto as="div" className="truncate" style={{ fontSize: 11.5, color: T.inkSoft }}>
-                    {(o.items || []).map((i) => `${i.name} ${i.label}`).join(" · ")}
-                  </Auto>
-                </div>
-                <div className="text-end shrink-0">
-                  <div style={{ fontFamily: display, fontSize: 16 }}><Money v={o.total} /></div>
-                  <div style={{ fontSize: 11, color: T.inkSoft }}>{o.status}</div>
-                </div>
-              </a>
-            ))}
+            {orders.map((o) => <OrderRow key={o.code} order={o} />)}
           </div>
         )}
       </section>
@@ -2604,6 +2730,20 @@ function Store() {
     updateOrderStatus(code, status).catch((e) => { console.error(e); setSaveError("Could not update that order."); });
   };
 
+  /* Awaited rather than fire-and-forget like the others: the owner has just
+     typed a password he may not have written down anywhere else, so a failed
+     write has to reach him as an error on the button rather than a toast he
+     might miss. Local state is updated only once the server has taken it, for
+     the same reason — an optimistic row here would show "delivered" for
+     something the customer cannot see. */
+  const setOrderDelivery = async (code, rows, itemCount, complete) => {
+    const saved = await saveOrderDelivery(code, rows, itemCount);
+    if (complete) await updateOrderStatus(code, "Delivered");
+    setOrders((list) => list.map((o) => (o.code === code
+      ? { ...o, delivery: saved, ...(complete ? { status: "Delivered" } : {}) }
+      : o)));
+  };
+
   /* cart ops */
   const addToCart = (product, variant) => {
     if (!variant) return;
@@ -2692,6 +2832,7 @@ function Store() {
         <Admin
           catalog={catalog} setCatalog={persistCatalog}
           orders={orders} setOrders={setOrders} setOrderStatus={setOrderStatus}
+          setOrderDelivery={setOrderDelivery}
           settings={settings} setSettings={persistSettings}
           saveError={saveError} saveState={saveState} onFlush={flushSave}
           exit={() => { flushSave(); go("/"); }}

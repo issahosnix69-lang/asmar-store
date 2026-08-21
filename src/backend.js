@@ -46,9 +46,27 @@ const LS = {
   },
 };
 
+/* Crockford-ish base32: no I, L, O or U, so a code read down the phone cannot
+   come back as a different one. */
+const CODE_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+
+/* Local mode only — with Supabase the code is minted inside place_order, where
+   a unique index has the final say.
+ *
+ * The random half used to be `getRandomValues(Uint32Array)[0].toString(36)`
+ * truncated to three characters, which is both short and skewed: base36 of a
+ * uint32 is six or seven characters and taking the leading three keeps the most
+ * significant digits, so the first character was almost never past 'D'. The
+ * timestamp half only changes once a millisecond, so a burst of orders leaned
+ * entirely on those three characters and duplicate codes really did come out —
+ * "gives every order a distinct code" failed roughly one run in a hundred.
+ *
+ * Masking to 5 bits takes the low end of a uniform byte, where all 32 values
+ * are equally likely, and five of them is 33.5 million rather than a few
+ * thousand skewed ones. */
 const localOrderCode = () =>
-  "ASM-" + Date.now().toString(36).slice(-4).toUpperCase() +
-  "-" + crypto.getRandomValues(new Uint32Array(1))[0].toString(36).slice(0, 3).toUpperCase();
+  "ASM-" + Date.now().toString(36).slice(-4).toUpperCase() + "-" +
+  Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => CODE_ALPHABET[b & 31]).join("");
 
 /* --------------------------------------------------------------- mapping */
 /* The database uses snake_case columns; the component uses camelCase. */
@@ -156,7 +174,34 @@ export async function fetchOrders() {
     code: o.code, items: o.items, total: Number(o.total),
     customer: o.customer, status: o.status, createdAt: o.created_at,
     paymentStatus: o.payment_status, paidAt: o.paid_at,
+    delivery: o.delivery || [],
   }));
+}
+
+/* The subscription details themselves, written by the owner and read by the
+   customer on their account page.
+ *
+ * Positional: delivery[i] belongs to items[i], so an order carrying a Netflix
+ * and a Spotify subscription keeps them apart. Padded to the length of items
+ * before it is stored, because a sparse array round-trips through JSON as
+ * nulls and the account page would then have to guess which line each entry
+ * belonged to.
+ *
+ * There is no RPC behind this on purpose. The orders_write policy is
+ * `using (is_admin())`, so the database already refuses this update from
+ * anyone else — a security-definer wrapper would only move that same check
+ * somewhere less obvious. */
+export async function saveOrderDelivery(code, delivery, itemCount) {
+  const rows = Array.from({ length: itemCount }, (_, i) => delivery[i] || {});
+  const supabase = await getClient();
+  if (!supabase) {
+    const next = LS.get("orders", []).map((o) => (o.code === code ? { ...o, delivery: rows } : o));
+    LS.set("orders", next);
+    return rows;
+  }
+  const { error } = await supabase.from("orders").update({ delivery: rows }).eq("code", code);
+  if (error) throw error;
+  return rows;
 }
 
 /* Returns the created order. On Supabase the total and code come back from
@@ -180,6 +225,9 @@ export async function placeOrder({ items, customer, total, useBalance = false })
       customer: { ...customer, payment: useBalance ? "balance" : customer.payment },
       status: customer.payment === "online" && !useBalance ? "Awaiting payment" : "New",
       paymentStatus: useBalance ? "paid" : "unpaid",
+      /* Same shape the database column defaults to, so the account page does
+         not need a second code path for orders placed locally. */
+      delivery: [],
       createdAt: new Date().toISOString(),
     };
     LS.set("orders", [order, ...LS.get("orders", [])]);
