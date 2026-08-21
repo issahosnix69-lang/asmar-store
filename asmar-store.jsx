@@ -9,6 +9,7 @@ import {
   backend, auth, fetchCatalog, saveCatalog, fetchSettings, saveSettings,
   placeOrder as submitOrder, updateOrderStatus, startWhishPayment, fetchOrderStatus,
   fetchAccount, submitTopup, requestAccount, saveOrderDelivery,
+  fetchOrderCosts, saveOrderCost,
 } from "./src/backend.js";
 import {
   T, display, script, ui, WRAP,
@@ -2777,6 +2778,27 @@ function Store() {
      might miss. Local state is updated only once the server has taken it, for
      the same reason — an optimistic row here would show "delivered" for
      something the customer cannot see. */
+  /* Admin-only, and loaded only once the admin is actually open — a customer
+     browsing the shop has no business fetching them, and the policy would
+     refuse anyway. */
+  const [costs, setCosts] = useState({});
+  useEffect(() => {
+    if (!route.startsWith("/admin")) return;
+    let alive = true;
+    fetchOrderCosts()
+      .then((c) => { if (alive) setCosts(c); })
+      /* A missing order_costs table means supabase/reports.sql has not been
+         run. The rest of the admin still works, so this must not take it down
+         — Reports simply shows nothing recorded. */
+      .catch((e) => console.warn("Could not load order costs", e));
+    return () => { alive = false; };
+  }, [route]);
+
+  const setCost = async (code, cost, note) => {
+    const saved = await saveOrderCost(code, cost, note);
+    setCosts((c) => ({ ...c, [code]: saved }));
+  };
+
   const setOrderDelivery = async (code, rows, itemCount, complete) => {
     const saved = await saveOrderDelivery(code, rows, itemCount);
     if (complete) await updateOrderStatus(code, "Delivered");
@@ -2873,7 +2895,7 @@ function Store() {
         <Admin
           catalog={catalog} setCatalog={persistCatalog}
           orders={orders} setOrders={setOrders} setOrderStatus={setOrderStatus}
-          setOrderDelivery={setOrderDelivery}
+          setOrderDelivery={setOrderDelivery} costs={costs} setCost={setCost}
           settings={settings} setSettings={persistSettings}
           saveError={saveError} saveState={saveState} onFlush={flushSave}
           exit={() => { flushSave(); go("/"); }}

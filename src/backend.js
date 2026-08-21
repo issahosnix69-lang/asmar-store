@@ -235,6 +235,33 @@ export async function saveOrderDelivery(code, delivery, itemCount) {
   return rows;
 }
 
+/* What Ali paid, per order. Admin-only — see the note at the top of
+   supabase/reports.sql for why this is not a column on orders. */
+export async function fetchOrderCosts() {
+  const supabase = await getClient();
+  if (!supabase) return LS.get("orderCosts", {});
+  const { data, error } = await supabase.from("order_costs").select("order_code, cost, note");
+  if (error) throw error;
+  return Object.fromEntries(
+    data.map((r) => [r.order_code, { cost: Number(r.cost), note: r.note || "" }]));
+}
+
+export async function saveOrderCost(code, cost, note = "") {
+  const value = Number(cost) || 0;
+  const supabase = await getClient();
+  if (!supabase) {
+    const all = LS.get("orderCosts", {});
+    all[code] = { cost: value, note };
+    LS.set("orderCosts", all);
+    return all[code];
+  }
+  const { error } = await supabase.from("order_costs").upsert(
+    { order_code: code, cost: value, note, updated_at: new Date().toISOString() },
+    { onConflict: "order_code" });
+  if (error) throw error;
+  return { cost: value, note };
+}
+
 /* Returns the created order. On Supabase the total and code come back from
    the server, which is the point — the browser does not get to decide them.
    Paying from the balance is also decided there: the check and the debit are

@@ -8,7 +8,7 @@ import React, { useEffect, useState } from "react";
 import {
   AlertTriangle, ChevronDown, ChevronUp, CloudUpload, FileText, LogOut, Package,
   Pencil, Plus, Receipt, Search, Settings, Star, Tags, Trash2, X, MessageSquareQuote,
-  Wallet, Users, Check, Copy, Loader2, LayoutDashboard, Stethoscope, ArrowRight,
+  Wallet, Users, Check, Copy, Loader2, LayoutDashboard, Stethoscope, ArrowRight, TrendingUp,
 } from "lucide-react";
 import {
   T, display, script, ui, Btn, Field, EmptyState, LogoPicker, CoverPicker,
@@ -23,6 +23,7 @@ import {
 } from "./backend.js";
 import { SEED_CATEGORIES, SEED_FAQ, SEED_PAGES } from "./seed.js";
 import { U } from "./paths.js";
+import { summarise, byMonth, byProduct, byCustomer, periodRange } from "./reports.js";
 
 const STATUSES = ["New", "Awaiting payment", "Delivered", "Cancelled"];
 
@@ -138,6 +139,7 @@ const NAV = [
     ["orders", "Orders", Receipt],
     ["topups", "Top-ups", Wallet],
     ["customers", "Customers", Users],
+    ["reports", "Reports", TrendingUp],
   ]],
   ["Shop", [
     ["products", "Products", Package],
@@ -176,7 +178,7 @@ function SaveState({ state }) {
 }
 
 export default function Admin({
-  catalog, setCatalog, orders, setOrders, setOrderStatus, setOrderDelivery,
+  catalog, setCatalog, orders, setOrders, setOrderStatus, setOrderDelivery, costs, setCost,
   settings, setSettings, exit, saveError, saveState, onFlush,
 }) {
   const categories = settings.categories?.length ? settings.categories : SEED_CATEGORIES;
@@ -398,8 +400,10 @@ export default function Admin({
                 settings={settings} go={setTab} />
             )}
             {tab === "orders" && (
-              <AdminOrders orders={orders} setStatus={setOrderStatus} setDelivery={setOrderDelivery} />
+              <AdminOrders orders={orders} setStatus={setOrderStatus} setDelivery={setOrderDelivery}
+                costs={costs} setCost={setCost} />
             )}
+            {tab === "reports" && <AdminReports orders={orders} costs={costs} />}
             {tab === "topups" && <AdminTopups onCountChange={setPending} whatsapp={settings.whatsapp} />}
             {tab === "customers" && <AdminCustomers whatsapp={settings.whatsapp} />}
             {tab === "products" && (
@@ -527,6 +531,197 @@ function AdminOverview({ orders, pending, catalog, settings, go }) {
 }
 
 /* ===================================================================== orders */
+/* ================================================================== reports */
+/* What the shop earns, and what it keeps.
+ *
+ * Costs are typed in per order, so some orders will not have one — that is
+ * normal, not an error state. Every profit figure here is drawn only from the
+ * orders that do, and the count of the ones that do not is shown next to it
+ * rather than buried, because an unrecorded cost inflates profit by the entire
+ * sale price and nothing on screen would look wrong. */
+function ReportCard({ label, value, sub, accent }) {
+  return (
+    <div className="px-4 py-3.5" style={cardStyle}>
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em" }}>{label}</div>
+      <div style={{ fontFamily: display, fontSize: "clamp(20px, 5vw, 27px)", marginTop: 5,
+                    color: accent || T.ink }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 3 }}>{sub}</div>}
+    </div>
+  );
+}
+
+/* Inline SVG rather than a charting library: two series over six months does
+   not justify shipping one, and the admin bundle is already the heaviest
+   thing here. */
+function MonthChart({ rows }) {
+  const peak = Math.max(1, ...rows.map((r) => r.revenue));
+  const H = 130;
+
+  return (
+    <div className="px-4 py-4 mb-6" style={cardStyle}>
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em", marginBottom: 14 }}>
+        Last {rows.length} months
+      </div>
+      <div className="flex items-end gap-2" style={{ height: H }}>
+        {rows.map((r) => {
+          const rev = Math.round((r.revenue / peak) * (H - 20));
+          const prof = Math.round((Math.max(0, r.profit) / peak) * (H - 20));
+          return (
+            <div key={r.key} className="flex-1 flex flex-col justify-end items-center gap-1"
+              title={`${r.orders} orders · ${money(r.revenue)} in · ${money(r.profit)} kept`}>
+              {/* Profit is drawn inside revenue, not beside it — it is a part
+                  of that bar, and two bars side by side invite reading them as
+                  unrelated totals. */}
+              <div style={{ width: "100%", height: Math.max(rev, 2), background: T.tintDeep,
+                            border: `1px solid ${T.line}`, borderBottom: 0,
+                            borderRadius: "5px 5px 0 0", position: "relative" }}>
+                <div style={{ position: "absolute", bottom: 0, left: 0, right: 0,
+                              height: Math.max(prof, 0), background: T.brand,
+                              borderRadius: prof >= rev ? "5px 5px 0 0" : 0 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="flex gap-2 mt-2">
+        {rows.map((r) => (
+          <div key={r.key} className="flex-1 text-center"
+            style={{ fontSize: 10, color: T.inkSoft }}>
+            {r.date.toLocaleDateString(undefined, { month: "short" })}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-4 mt-3" style={{ fontSize: 11, color: T.inkSoft }}>
+        <span className="flex items-center gap-1.5">
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: T.tintDeep, border: `1px solid ${T.line}` }} /> Sales
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span style={{ width: 9, height: 9, borderRadius: 2, background: T.brand }} /> Kept
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const PERIODS = [
+  ["month", "This month"],
+  ["lastMonth", "Last month"],
+  ["30d", "Last 30 days"],
+  ["all", "All time"],
+];
+
+function AdminReports({ orders, costs }) {
+  const [period, setPeriod] = useState("month");
+
+  const range = periodRange(period);
+  const sum = summarise(orders, costs, range);
+  const months = byMonth(orders, costs, 6);
+  const products = byProduct(orders, costs, range);
+  const customers = byCustomer(orders, range);
+
+  if (!orders.length) {
+    return <EmptyState title="Nothing to report yet"
+      body="Once orders start arriving, what you earned and what you kept show up here." />;
+  }
+
+  const pct = (n) => (n === null ? "—" : `${Math.round(n * 100)}%`);
+
+  return (
+    <>
+      <div className="flex gap-2 mb-5 overflow-x-auto navscroll">
+        {PERIODS.map(([k, label]) => (
+          <button key={k} onClick={() => setPeriod(k)} className="shrink-0 press"
+            style={{ padding: "6px 12px", borderRadius: 999, fontSize: 11.5,
+                     background: period === k ? T.tint : "transparent",
+                     color: period === k ? T.brandText : T.inkSoft,
+                     border: `1px solid ${period === k ? T.tintDeep : T.line}` }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 mb-3">
+        <ReportCard label="Sales" value={money(sum.revenue)}
+          sub={`${sum.delivered} delivered`} />
+        <ReportCard label="Cost" value={money(sum.cost)}
+          sub={sum.missingCost ? `${sum.missingCost} not recorded` : "all recorded"} />
+        <ReportCard label="Kept" value={money(sum.profit)} accent={T.brandText}
+          sub={`${pct(sum.margin)} margin`} />
+        <ReportCard label="Average order" value={money(sum.averageOrder)}
+          sub={`${sum.orders} orders placed`} />
+      </div>
+
+      {/* The one number a revenue figure alone hides. */}
+      {sum.unfulfilled > 0 && (
+        <div className="flex items-start gap-2 px-4 py-3 mb-3"
+          style={{ background: T.tint, borderRadius: 10, fontSize: 12.5, lineHeight: 1.6 }}>
+          <Wallet size={14} className="shrink-0" style={{ marginTop: 2, color: T.brandText }} />
+          <span>{money(sum.unfulfilled)} of orders in this period are not delivered yet. That is owed, not earned.</span>
+        </div>
+      )}
+
+      {sum.missingCost > 0 && (
+        <div className="flex items-start gap-2 px-4 py-3 mb-6"
+          style={{ background: T.tint, borderRadius: 10, fontSize: 12.5, lineHeight: 1.6 }}>
+          <AlertTriangle size={14} className="shrink-0" style={{ marginTop: 2, color: T.brandText }} />
+          <span>
+            {sum.missingCost} delivered {sum.missingCost === 1 ? "order has" : "orders have"} no
+            cost recorded, so {sum.missingCost === 1 ? "it is" : "they are"} left out of the profit
+            above. Add it under each order in the Orders tab.
+          </span>
+        </div>
+      )}
+
+      <MonthChart rows={months} />
+
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em", marginBottom: 10 }}>
+        Products
+      </div>
+      <div className="flex flex-col gap-2 mb-6">
+        {products.length === 0 && (
+          <p style={{ fontSize: 13, color: T.inkSoft }}>No delivered orders in this period.</p>
+        )}
+        {products.slice(0, 12).map((p) => (
+          <div key={p.name} className="flex items-center justify-between gap-3 px-4 py-3" style={cardStyle}>
+            <div className="min-w-0">
+              <div style={{ fontSize: 13.5, fontWeight: 500 }}>{p.name}</div>
+              <div style={{ fontSize: 11.5, color: T.inkSoft }}>
+                {p.qty} sold
+                {/* Said plainly: the order's cost was split across its lines by
+                    value, so a per-product profit is an apportionment. */}
+                {p.costed > 0 ? ` · kept ${money(p.profit)} (estimated)` : " · no cost recorded"}
+              </div>
+            </div>
+            <div style={{ fontFamily: display, fontSize: 17, color: T.brandText }}>{money(p.revenue)}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em", marginBottom: 10 }}>
+        Customers
+      </div>
+      <div className="flex flex-col gap-2">
+        {customers.length === 0 && (
+          <p style={{ fontSize: 13, color: T.inkSoft }}>No delivered orders in this period.</p>
+        )}
+        {customers.slice(0, 12).map((c) => (
+          <div key={c.key} className="flex items-center justify-between gap-3 px-4 py-3" style={cardStyle}>
+            <div className="min-w-0">
+              <div className="truncate" style={{ fontSize: 13.5, fontWeight: 500 }}>{c.name}</div>
+              <div style={{ fontSize: 11.5, color: T.inkSoft }}>
+                {c.phone} · {c.orders} {c.orders === 1 ? "order" : "orders"}
+              </div>
+            </div>
+            <div style={{ fontFamily: display, fontSize: 17 }}>{money(c.spent)}</div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* The subscription details for one line of an order.
  *
  * Deliberately three plain fields rather than one free-text box: the customer's
@@ -636,7 +831,76 @@ function DeliveryEditor({ order, onSave }) {
   );
 }
 
-function AdminOrders({ orders, setStatus, setDelivery }) {
+/* What this order cost Ali to fulfil.
+ *
+ * Stored in its own table, never on the order — a customer can read their own
+ * order row in full, so a cost column there would be them reading the shop's
+ * margin on themselves. See supabase/reports.sql.
+ *
+ * Left blank the order simply has no cost recorded, and the Reports tab leaves
+ * it out of profit and says how many it left out. That is deliberately not the
+ * same as zero: a zero here would mean the subscription was free. */
+function CostEditor({ order, recorded, onSave }) {
+  const [value, setValue] = useState(recorded?.cost != null ? String(recorded.cost) : "");
+  const [note, setNote] = useState(recorded?.note || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  const parsed = value.trim() === "" ? null : Number(value);
+  const valid = parsed !== null && Number.isFinite(parsed) && parsed >= 0;
+  const profit = valid ? Number(order.total) - parsed : null;
+
+  const save = async () => {
+    if (!valid) { setError("Enter what you paid, as a number."); return; }
+    setSaving(true);
+    setError("");
+    try {
+      await onSave(order.code, parsed, note);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setError(e?.message || "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const field = {
+    padding: "7px 10px", borderRadius: 7, fontSize: 13,
+    background: T.bg, border: `1px solid ${T.line}`, color: T.ink,
+  };
+
+  return (
+    <div className="mt-3 pt-3" style={{ borderTop: `1px solid ${T.line}` }}>
+      <div style={{ ...labelStyle, fontSize: 10, letterSpacing: ".16em", marginBottom: 8 }}>
+        What it cost you
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input style={{ ...field, width: 110 }} inputMode="decimal" placeholder="0.00"
+          value={value} onChange={(e) => { setValue(e.target.value); setError(""); }} />
+        <input style={{ ...field, flex: 1, minWidth: 150 }} placeholder="Note (optional) — where you bought it"
+          value={note} onChange={(e) => setNote(e.target.value)} />
+        <Btn onClick={save} disabled={saving}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+          Save
+        </Btn>
+      </div>
+      <p style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 7 }}>
+        {valid
+          ? <>Sold for {money(order.total)} — you keep <span style={{ color: T.brandText }}>{money(profit)}</span>.</>
+          : "Leave blank if you do not know yet. It is left out of the profit report rather than counted as free."}
+      </p>
+      {error && (
+        <p className="flex items-start gap-1.5 mt-2" style={{ fontSize: 12, color: T.brandText }}>
+          <AlertTriangle size={13} className="shrink-0" style={{ marginTop: 1 }} /> {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AdminOrders({ orders, setStatus, setDelivery, costs, setCost }) {
   const [filter, setFilter] = useState("All");
   const revenue = orders.filter((o) => o.status === "Delivered").reduce((s, o) => s + o.total, 0);
   const open = orders.filter((o) => o.status === "New" || o.status === "Awaiting payment").length;
@@ -710,6 +974,8 @@ function AdminOrders({ orders, setStatus, setDelivery }) {
                 </button>
               ))}
             </div>
+
+            <CostEditor order={o} recorded={costs[o.code]} onSave={setCost} />
 
             <DeliveryEditor
               order={o}
