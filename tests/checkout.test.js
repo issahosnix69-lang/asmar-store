@@ -7,7 +7,7 @@
  * shop locally quietly teaches you the wrong thing.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { placeOrder, fetchAccount, fetchOrderStatus, auth } from "../src/backend.js";
+import { placeOrder, fetchAccount, fetchOrderStatus, auth, oneRow } from "../src/backend.js";
 
 const CUSTOMER = { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cod", notes: "" };
 const ITEMS = [{ key: "p1|1 month", id: "p1", name: "Netflix", label: "1 month", price: 4.5, qty: 2 }];
@@ -162,5 +162,39 @@ describe("sign-in", () => {
     seedAccount();
     const session = await auth.signIn("  Rami@Example.com  ", "pw");
     expect(session.user.email).toBe("rami@example.com");
+  });
+});
+
+/* The one RPC in the shop declared `returns table (...)`.
+ *
+ * PostgREST picks an RPC's response shape from the signature rather than the
+ * row count, so that one answers with an array where every other RPC here
+ * answers with an object. Reading the fields straight off it gave undefined
+ * for payment_status — and undefined is not "paid", so the status page
+ * reported every successful payment as a failure, including real Whish
+ * payments that had gone through.
+ *
+ * These tests are the shapes PostgREST actually returns. The local twin above
+ * cannot catch this: it never goes near the RPC. */
+describe("reading a set-returning RPC", () => {
+  it("takes the row out of the array PostgREST wraps it in", () => {
+    const row = oneRow([{ code: "ASM-1", status: "New", payment_status: "paid", total: "9.00" }]);
+    expect(row.payment_status).toBe("paid");
+    expect(row.code).toBe("ASM-1");
+  });
+
+  it("treats the empty array as no such order, not as an order", () => {
+    /* [] is truthy, so this was previously an order object whose every field
+       was undefined rather than a miss. */
+    expect(oneRow([])).toBeNull();
+  });
+
+  it("still accepts a bare object, in case the signature is ever changed", () => {
+    expect(oneRow({ code: "ASM-2", payment_status: "unpaid" }).code).toBe("ASM-2");
+  });
+
+  it("reads null and undefined as no such order", () => {
+    expect(oneRow(null)).toBeNull();
+    expect(oneRow(undefined)).toBeNull();
   });
 });

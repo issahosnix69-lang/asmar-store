@@ -19,6 +19,22 @@ export const backend = { mode: configured ? "supabase" : "local" };
    it on first use instead. Every caller below already awaits, so the only cost
    is one extra microtask on the first database call. */
 let clientPromise = null;
+/* PostgREST decides an RPC's response shape from the function's signature, not
+   from how many rows come back. `order_public_status` is declared
+   `returns table (...)`, which is set-returning, so the reply is an array —
+   `[{...}]` for a hit and `[]` for a miss — where a scalar or composite return
+   type would have given a bare object.
+ *
+ * Reading `.payment_status` straight off that array yields undefined, and
+ * undefined is not "paid", so the order status page called every successful
+ * payment a failed one. `[]` is truthy too, so an unknown code did not read as
+ * missing either.
+ *
+ * Both shapes are accepted here rather than changing the function, because the
+ * function is already deployed and this has to be right against the one that
+ * is live. */
+export const oneRow = (data) => (Array.isArray(data) ? data[0] : data) || null;
+
 export function getClient() {
   if (!configured) return Promise.resolve(null);
   if (!clientPromise) {
@@ -287,10 +303,11 @@ export async function fetchOrderStatus(code) {
   }
   const { data, error } = await supabase.rpc("order_public_status", { p_code: code });
   if (error) throw error;
-  if (!data) return null;
+  const row = oneRow(data);
+  if (!row) return null;
   return {
-    code: data.code, status: data.status,
-    paymentStatus: data.payment_status, total: Number(data.total),
+    code: row.code, status: row.status,
+    paymentStatus: row.payment_status, total: Number(row.total),
   };
 }
 
