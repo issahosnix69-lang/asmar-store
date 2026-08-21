@@ -143,23 +143,80 @@ function useTheme() {
 
 /* ----------------------------------------------------------------- reveal */
 /* Sections fade up as they enter the viewport. The failsafe matters more than
-   the animation: if the observer never fires, everything is shown anyway
-   rather than leaving the customer on a blank page. */
-function useReveal(dep) {
+   the animation: [data-reveal] is opacity:0 until something adds .revealed, so
+   anything this misses is not a missed animation — it is content the customer
+   never sees.
+ *
+ * It used to take a dependency string naming every piece of state that might
+ * change what is on screen, snapshot the matching elements once per change, and
+ * arm a single shared timer. That is a list nobody can keep complete, and it was
+ * already wrong: coming back to the tab on /account re-reads the balance, which
+ * swaps the page for its loading skeleton and back. React rebuilds those nodes —
+ * and rewrites className on the ones it reuses, dropping .revealed — while every
+ * value in the dependency string stays identical, so the effect never re-ran and
+ * the account sat there blank. Whether a given block survived came down to
+ * whether the observer had fired before the swap, which is why it looked
+ * intermittent.
+ *
+ * So: watch the DOM instead of guessing at the state behind it. Every element is
+ * armed individually, the class attribute is watched because React silently
+ * clears .revealed off a reused node, and nothing needs to be declared.
+ */
+function useReveal() {
   useEffect(() => {
-    const els = Array.from(document.querySelectorAll("[data-reveal]:not(.revealed)"));
-    if (!els.length) return;
-    const showAll = () => els.forEach((e) => e.classList.add("revealed"));
-    if (!("IntersectionObserver" in window)) { showAll(); return; }
-    const io = new IntersectionObserver((entries) => {
-      entries.forEach((e) => {
-        if (e.isIntersecting) { e.target.classList.add("revealed"); io.unobserve(e.target); }
-      });
-    }, { rootMargin: "0px 0px -6% 0px", threshold: 0.04 });
-    els.forEach((e) => io.observe(e));
-    const failsafe = setTimeout(showAll, 1600);
-    return () => { io.disconnect(); clearTimeout(failsafe); };
-  }, [dep]);
+    /* One failsafe per element rather than one for the batch: elements arrive at
+       different times, and a shared timer would expire for latecomers. */
+    const timers = new Map();
+    const show = (el) => {
+      el.classList.add("revealed");
+      clearTimeout(timers.get(el));
+      timers.delete(el);
+    };
+
+    const io = "IntersectionObserver" in window
+      ? new IntersectionObserver((entries) => {
+          entries.forEach((e) => {
+            if (e.isIntersecting) { show(e.target); io.unobserve(e.target); }
+          });
+        }, { rootMargin: "0px 0px -6% 0px", threshold: 0.04 })
+      : null;
+
+    const arm = (el) => {
+      if (timers.has(el)) return;
+      if (!io) { el.classList.add("revealed"); return; }
+      io.observe(el);
+      timers.set(el, setTimeout(() => show(el), 1600));
+    };
+
+    /* Batched to a frame: a single React commit can fire the observer many
+       times, and re-arming is cheap but not free. */
+    let queued = false;
+    const scan = () => {
+      queued = false;
+      document.querySelectorAll("[data-reveal]:not(.revealed)").forEach(arm);
+    };
+    scan();
+
+    const mo = new MutationObserver(() => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(scan);
+    });
+    mo.observe(document.body, {
+      childList: true,
+      subtree: true,
+      /* Adding .revealed is itself a class change, but the element then fails
+         the :not(.revealed) filter, so this settles rather than looping. */
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => {
+      mo.disconnect();
+      io?.disconnect();
+      timers.forEach((id) => clearTimeout(id));
+    };
+  }, []);
 }
 
 /* =====================================================
@@ -2485,12 +2542,8 @@ function Store() {
   }, [route, activeCategory, ready]);
 
   useEffect(() => { window.scrollTo(0, 0); setQ(""); }, [route]);
-  /* `account` belongs in here. The account page renders a skeleton until the
-     fetch lands, and a skeleton carries no [data-reveal] — so the effect found
-     nothing, returned early, and never armed either the observer or its
-     failsafe. The real content then arrived at opacity 0 with nothing left
-     running to reveal it, and the balance sat there invisible. */
-  useReveal(`${route}|${ready}|${catalog.length}|${lang}|${account ? "acc" : ""}`);
+  /* No dependency list: it watches the DOM for whatever appears. */
+  useReveal();
 
   /* Title, description, canonical and the WhatsApp preview card, per route.
      Waits for `ready` so a product page does not first publish the seed

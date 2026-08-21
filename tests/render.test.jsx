@@ -446,3 +446,45 @@ describe("theme", () => {
     await waitFor(() => expect(localStorage.getItem("asmar:theme")).toBe("light"));
   });
 });
+
+/* [data-reveal] is opacity:0 until .revealed is added, so anything the reveal
+   effect misses is not a missed animation — it is content nobody can see.
+ *
+ * The live shop lost its whole account page this way. Returning to the tab
+ * re-reads the balance, which swaps the page for its loading skeleton and back;
+ * React rebuilds those nodes, and rewrites className on the ones it reuses,
+ * dropping .revealed. The effect keyed off a dependency string that had not
+ * changed, so it never re-ran and the balance stayed invisible.
+ *
+ * Both cases below are that same rebuild, done to the mounted shop. */
+describe("reveal", () => {
+  const revealed = (el) => waitFor(() => expect(el).toHaveClass("revealed"), { timeout: 3000 });
+
+  it("reveals a section that appears after the first pass", async () => {
+    render(<AsmarStore />);
+    await booted();
+
+    const late = document.createElement("div");
+    late.setAttribute("data-reveal", "");
+    late.textContent = "arrived late";
+    document.body.appendChild(late);
+
+    await revealed(late);
+  });
+
+  it("re-reveals a section React rebuilt without remounting the app", async () => {
+    render(<AsmarStore />);
+    await booted();
+
+    const section = document.querySelector("[data-reveal]");
+    expect(section).not.toBeNull();
+    await revealed(section);
+
+    /* Exactly what React does to a node it reuses across the skeleton swap:
+       className is written wholesale, so .revealed goes with it. */
+    section.className = section.className.replace(/\brevealed\b/, "").trim();
+    expect(section).not.toHaveClass("revealed");
+
+    await revealed(section);
+  });
+});
