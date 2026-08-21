@@ -225,8 +225,8 @@ export const SEED_SETTINGS = {
   categoryNamesAr: SEED_CATEGORY_NAMES_AR,
   whatsapp: "96176113048",
   pin: "1234",
-  whishNote: "Whish Money → 76 113 048 (Ali Asmar)",
-  omtNote: "OMT → send to Ali Asmar, Tripoli",
+  whishNote: "Whish Money → 76 113 048 (Asmar)",
+  omtNote: "OMT → send to Asmar, Tripoli",
   heroTitle: "",        // blank falls back to the translated default
   heroSub: "",
   socials: { instagram: "", tiktok: "", channel: "" },

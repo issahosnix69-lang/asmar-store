@@ -124,7 +124,7 @@ const en = {
 
   "co.note": "Your subscription details are sent to the email below, and confirmation goes to your WhatsApp.",
   "co.name": "Full name",
-  "co.namePlaceholder": "Ali Asmar",
+  "co.namePlaceholder": "Asmar",
   "co.phone": "WhatsApp number",
   "co.email": "Email for delivery",
   "co.payment": "Payment",
@@ -391,7 +391,7 @@ const ar = {
 
   "co.note": "تصلك بيانات الاشتراك على البريد أدناه، ويصلك التأكيد على واتساب.",
   "co.name": "الاسم الكامل",
-  "co.namePlaceholder": "علي أسمر",
+  "co.namePlaceholder": "أسمر",
   "co.phone": "رقم الواتساب",
   "co.email": "البريد الإلكتروني للتسليم",
   "co.payment": "طريقة الدفع",
