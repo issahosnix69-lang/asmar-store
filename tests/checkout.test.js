@@ -7,7 +7,7 @@
  * shop locally quietly teaches you the wrong thing.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { placeOrder, fetchAccount, fetchOrderStatus, auth, oneRow } from "../src/backend.js";
+import { placeOrder, fetchAccount, fetchOrderStatus, auth, oneRow, probe } from "../src/backend.js";
 
 const CUSTOMER = { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cod", notes: "" };
 const ITEMS = [{ key: "p1|1 month", id: "p1", name: "Netflix", label: "1 month", price: 4.5, qty: 2 }];
@@ -196,5 +196,32 @@ describe("reading a set-returning RPC", () => {
   it("reads null and undefined as no such order", () => {
     expect(oneRow(null)).toBeNull();
     expect(oneRow(undefined)).toBeNull();
+  });
+});
+
+/* Diagnostics is the screen you open when the shop is misbehaving, which is
+   when a network call is likeliest to hang rather than fail. Every probe in it
+   used to be unbounded, so one stalled request left the page spinning with
+   nothing said — the one screen whose job is to tell you what is wrong was the
+   one that could not. */
+describe("diagnostic probes are bounded", () => {
+  it("resolves a hung request instead of waiting on it", async () => {
+    const start = Date.now();
+    const never = new Promise(() => {});
+    const { error } = await probe("Stuck check", never, 60);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(error.message).toMatch(/no answer within/);
+    expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  it("passes a real answer straight through", async () => {
+    const { data } = await probe("Fine check", Promise.resolve({ data: 12 }), 500);
+    expect(data).toBe(12);
+  });
+
+  it("turns a rejection into an error rather than throwing", async () => {
+    const { error } = await probe("Broken check", Promise.reject(new Error("relation does not exist")), 500);
+    expect(error.message).toBe("relation does not exist");
   });
 });

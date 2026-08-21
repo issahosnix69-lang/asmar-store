@@ -730,6 +730,39 @@ export async function createCustomer({ email, password, name, phone }) {
  * Asks the database what it actually has, so "the backend is broken" becomes a
  * named missing step. Every check returns the exact thing to paste or run.
  */
+/* Diagnostics is what you open when the shop is misbehaving, which is exactly
+   when a network call is likeliest to hang rather than fail — a blocked host,
+   a stalled function, an extension eating the request. None of these probes
+   had a deadline, so any one of them hanging left the page on its spinner
+   forever with nothing said. The one screen whose whole job is to tell you
+   what is wrong was the one screen that could not.
+ *
+   Eight seconds: long enough that a slow-but-alive check still passes on a
+   phone connection, short enough that a whole run of these cannot outlast
+   anyone's patience. A probe that trips this reports the timeout as its
+   result, which is itself the finding. */
+const PROBE_MS = 8000;
+
+export async function probe(label, work, ms = PROBE_MS) {
+  let timer;
+  const deadline = new Promise((resolve) => {
+    timer = setTimeout(
+      () => resolve({ error: new Error(`no answer within ${ms / 1000}s — the request hung rather than failed`) }),
+      ms,
+    );
+  });
+  try {
+    /* Both arms resolve rather than reject, so one dead probe cannot take the
+       rest of the run down with it. */
+    return await Promise.race([
+      Promise.resolve(work).then((r) => r ?? {}).catch((error) => ({ error })),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function runDiagnostics() {
   const supabase = await getClient();
   const out = [];
@@ -748,7 +781,7 @@ export async function runDiagnostics() {
 
   /* --- tables --- */
   const table = async (name, label) => {
-    const { error } = await supabase.from(name).select("*", { count: "exact", head: true });
+    const { error } = await probe(label, supabase.from(name).select("*", { count: "exact", head: true }));
     if (!error) return true;
     const missing = /does not exist|schema cache|relation/i.test(error.message);
     add(label, "bad",
@@ -766,7 +799,8 @@ export async function runDiagnostics() {
 
   /* Without the bucket a customer fills in the whole top-up form, photographs
      the transfer, and only then gets an error — so it is worth naming here. */
-  const { error: bucketErr } = await supabase.storage.from("receipts").list("", { limit: 1 });
+  const { error: bucketErr } = await probe(
+    "Receipt storage", supabase.storage.from("receipts").list("", { limit: 1 }));
   if (bucketErr && /not found|does not exist|bucket/i.test(bucketErr.message)) {
     add("Receipt storage", "bad",
       "The \"receipts\" bucket does not exist, so nobody can submit a top-up.",
@@ -776,7 +810,7 @@ export async function runDiagnostics() {
   }
 
   /* --- signed in and admin --- */
-  const { data: sessionData } = await supabase.auth.getSession();
+  const { data: sessionData } = await probe("Your login", supabase.auth.getSession());
   const session = sessionData?.session;
   if (!session) {
     add("Your login", "bad",
@@ -786,7 +820,7 @@ export async function runDiagnostics() {
   }
   add("Your login", "ok", `Signed in as ${session.user.email}.`, null);
 
-  const { data: isAdminRow, error: adminErr } = await supabase.rpc("is_admin");
+  const { data: isAdminRow, error: adminErr } = await probe("Admin rights", supabase.rpc("is_admin"));
   if (adminErr) {
     add("Admin rights", "bad",
       "The is_admin() function is missing, so the database cannot tell owners from customers.",
@@ -801,7 +835,8 @@ export async function runDiagnostics() {
 
   /* --- the catalogue actually being there --- */
   if (hasProducts) {
-    const { count } = await supabase.from("products").select("*", { count: "exact", head: true });
+    const { count } = await probe(
+      "Your catalogue", supabase.from("products").select("*", { count: "exact", head: true }));
     if (!count) {
       add("Your catalogue", "warn",
         "The products table is empty, so customers see the bundled demo products instead of yours.",
@@ -812,9 +847,9 @@ export async function runDiagnostics() {
   }
 
   /* --- ordering --- */
-  const { error: orderFnErr } = await supabase.rpc("place_order", {
+  const { error: orderFnErr } = await probe("Checkout", supabase.rpc("place_order", {
     p_items: [], p_customer: {}, p_use_balance: false,
-  });
+  }));
   if (orderFnErr && /could not find|does not exist|function/i.test(orderFnErr.message)) {
     add("Checkout", "bad",
       "place_order() is missing or has the wrong shape, so no order can be placed.",
@@ -841,10 +876,16 @@ export async function runDiagnostics() {
       `paste the contents of supabase/functions/${name}/index.ts, and deploy. ` +
       `Or, with the CLI: supabase functions deploy ${name}`;
     try {
+      /* A raw fetch to a host that accepts the connection and then says
+         nothing waits forever by default. This is a different host from the
+         database — *.functions.supabase.co — so it fails independently, and an
+         ad blocker or a corporate DNS can leave it hanging rather than
+         refusing. AbortSignal.timeout turns that into a catchable error. */
       const res = await fetch(`${base}/${name}`, {
         method: "POST",
         headers: { apikey: KEY, Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ probe: true }),
+        signal: AbortSignal.timeout(PROBE_MS),
       });
       if (res.status === 404) {
         add(label, "bad", `The ${name} function is not deployed. ${why}`, deployTip);
@@ -862,9 +903,8 @@ export async function runDiagnostics() {
   /* Only worth reporting if the database trigger is actually pointed at it —
      supabase/notify-direct.sql sends to Telegram from Postgres instead, and on
      that route this function is meant to be absent. */
-  const { data: viaFunction } = await supabase
-    .rpc("notify_uses_edge_function")
-    .catch(() => ({ data: false }));
+  const { data: viaFunction } = await probe(
+    "Alert route", supabase.rpc("notify_uses_edge_function"));
   if (viaFunction) {
     await fn("notify-order", "Order alerts",
       "Nothing will reach your phone when an order arrives.");
@@ -872,7 +912,8 @@ export async function runDiagnostics() {
 
   /* Deployed is not the same as wired up: the function can be live while the
      trigger still has no URL to post to, which looks fine and delivers nothing. */
-  const { data: notifyReady, error: notifyErr } = await supabase.rpc("notify_is_configured");
+  const { data: notifyReady, error: notifyErr } = await probe(
+    "Order alerts wiring", supabase.rpc("notify_is_configured"));
   if (notifyErr) {
     add("Order alerts wiring", "warn",
       "Could not check whether the order trigger is connected. If you have not run supabase/notify.sql yet, that is why.",
