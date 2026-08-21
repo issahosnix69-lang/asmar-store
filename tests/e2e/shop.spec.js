@@ -307,3 +307,57 @@ test.describe("delivered subscriptions", () => {
     await expect(page.getByText(/Ready/)).toHaveCount(0);
   });
 });
+
+/* This page is where Whish redirects back to, but the checkout confirmation
+   and the account list link here for every order, however it was paid.
+ *
+ * A cash-on-delivery order is payment_status 'unpaid' for its whole life, so
+ * reading payment_status alone told those customers their payment had failed
+ * on an order that was completely fine. `status` is the discriminator: only an
+ * unpaid *online* order is 'Awaiting payment'. */
+test.describe("order status page", () => {
+  const seedOrder = (page, order) => page.addInitScript(`
+    localStorage.setItem("asmar:orders", JSON.stringify([Object.assign({
+      customerId: "cus-e2e",
+      items: [{ id: "netflix", name: "Netflix", label: "1 month", qty: 1 }],
+      total: 5,
+      customer: { name: "Rami", phone: "70123456", email: "rami@example.com" },
+      delivery: [],
+      createdAt: new Date().toISOString()
+    }, ${JSON.stringify(order)})]));
+  `);
+
+  test("does not tell a cash customer their payment failed", async ({ page }) => {
+    await seedOrder(page, {
+      code: "ASM-CASH-0001", status: "New", paymentStatus: "unpaid",
+      customer: { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cash" },
+    });
+    await page.goto("/order/ASM-CASH-0001");
+
+    await expect(page.getByText(/order confirmed/i)).toBeVisible();
+    await expect(page.getByText(/pay on delivery/i)).toBeVisible();
+    await expect(page.getByText(/payment not completed/i)).toHaveCount(0);
+  });
+
+  test("still reports a genuinely abandoned online payment", async ({ page }) => {
+    await seedOrder(page, {
+      code: "ASM-ONLN-0002", status: "Awaiting payment", paymentStatus: "unpaid",
+      customer: { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "online" },
+    });
+    await page.goto("/order/ASM-ONLN-0002");
+
+    await expect(page.getByText(/payment not completed/i)).toBeVisible();
+    await expect(page.getByText(/nothing was charged/i)).toBeVisible();
+  });
+
+  test("points a delivered order at the account page", async ({ page }) => {
+    await seedOrder(page, {
+      code: "ASM-DONE-0003", status: "Delivered", paymentStatus: "paid",
+      customer: { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cash" },
+    });
+    await page.goto("/order/ASM-DONE-0003");
+
+    await expect(page.getByText(/your order is ready/i)).toBeVisible();
+    await expect(page.getByRole("link", { name: /open my account/i })).toBeVisible();
+  });
+});

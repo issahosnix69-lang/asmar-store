@@ -1922,8 +1922,44 @@ function OrderStatusPage({ code, whatsapp }) {
   }, [code]);
 
   const { loading, order } = state;
-  const paid = order?.paymentStatus === "paid";
-  const pending = order?.paymentStatus === "pending";
+
+  /* This page began life as the place Whish redirects back to, so it read
+     nothing but payment_status: paid, pending, or — for everything else —
+     "Payment not completed".
+   *
+     It is not only that page. The checkout confirmation links here for every
+     order, and so does the account list. A cash-on-delivery order is
+     payment_status 'unpaid' by definition and always will be, so every
+     customer paying cash who followed that link was told their payment had
+     failed on an order that was perfectly fine.
+
+     `status` is what separates them: place_order writes 'Awaiting payment'
+     only for an online order that has not been paid, and 'New' for cash and
+     for balance. So a genuine failure is an unpaid *and* awaiting order;
+     unpaid and 'New' means the customer simply owes cash at the door. */
+  const kind = !order ? null
+    : order.status === "Cancelled" ? "cancelled"
+    : order.paymentStatus === "pending" ? "pending"
+    : order.status === "Delivered" ? "delivered"
+    : order.paymentStatus === "paid" ? "paid"
+    : order.status === "Awaiting payment" ? "failed"
+    : "confirmed";
+
+  const pending = kind === "pending";
+  const good = kind === "paid" || kind === "delivered" || kind === "confirmed";
+
+  /* Spelled out rather than composed as t(`status.${kind}`): the i18n test
+     finds every key the shop asks for by reading the literals inside t(...)
+     calls, and a template makes all six of these look unreferenced — which is
+     indistinguishable from the strings actually being dead. */
+  const copy = {
+    paid:      { title: t("status.paid"),      body: t("status.paidBody") },
+    pending:   { title: t("status.pending"),   body: t("status.pendingBody") },
+    failed:    { title: t("status.failed"),    body: t("status.failedBody") },
+    confirmed: { title: t("status.confirmed"), body: t("status.confirmedBody") },
+    delivered: { title: t("status.delivered"), body: t("status.deliveredBody") },
+    cancelled: { title: t("status.cancelled"), body: t("status.cancelledBody") },
+  }[kind] || { title: "", body: "" };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-16 text-center"
@@ -1941,27 +1977,32 @@ function OrderStatusPage({ code, whatsapp }) {
         <>
           <div className="flex items-center justify-center pop"
             style={{ width: 52, height: 52, borderRadius: 26, marginBottom: 18, background: T.tint }}>
-            {paid ? <Check size={24} style={{ color: T.ok }} />
+            {good ? <Check size={24} style={{ color: T.ok }} />
                   : pending ? <Loader2 size={22} className="animate-spin" style={{ color: T.brandText }} />
                   : <AlertTriangle size={22} style={{ color: T.brandText }} />}
           </div>
           <p style={{ fontFamily: display, fontSize: "clamp(24px, 6vw, 32px)", marginBottom: 8 }}>
-            {paid ? t("status.paid") : pending ? t("status.pending") : t("status.failed")}
+            {copy.title}
           </p>
           <Ltr style={{ fontSize: 11, letterSpacing: ".22em", textTransform: "uppercase", color: T.inkSoft }}>
             {order.code}
           </Ltr>
           <p style={{ fontSize: 14.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 16, maxWidth: 400 }}>
-            {paid ? t("status.paidBody") : pending ? t("status.pendingBody") : t("status.failedBody")}
+            {copy.body}
           </p>
         </>
       )}
 
       <div className="flex flex-col gap-2.5 mt-9" style={{ width: "100%", maxWidth: 300 }}>
+        {/* The subscription details land on the account page now, so anyone
+            whose order is alive is pointed at it rather than left to find it. */}
+        {good && (
+          <a href={U("/account")}><Btn full variant="dark">{t("status.toAccount")}</Btn></a>
+        )}
         {whatsapp && (
           <a href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(`Hello, about order ${code}`)}`}
             target="_blank" rel="noopener noreferrer">
-            <Btn full variant="dark">{t("status.message")}</Btn>
+            <Btn full variant={good ? "ghost" : "dark"}>{t("status.message")}</Btn>
           </a>
         )}
         <a href={U("/")}><Btn full variant="ghost">{t("status.back")}</Btn></a>
