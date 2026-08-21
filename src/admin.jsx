@@ -22,6 +22,7 @@ import {
   fetchAccountRequests, decideAccountRequest, countPendingRequests,
 } from "./backend.js";
 import { SEED_CATEGORIES, SEED_FAQ, SEED_PAGES } from "./seed.js";
+import { U } from "./paths.js";
 
 const STATUSES = ["New", "Awaiting payment", "Delivered", "Cancelled"];
 
@@ -1676,7 +1677,7 @@ function AdminPages({ settings, setSettings, lang }) {
         <div key={k}>
           <div className="flex items-baseline justify-between gap-3 mb-1.5">
             <span style={labelStyle}>{label}{ar ? " — Arabic" : ""}</span>
-            <a href={`/page/${k}`} style={{ fontSize: 11.5, color: T.brandText }}>{path}</a>
+            <a href={U(`/page/${k}`)} style={{ fontSize: 11.5, color: T.brandText }}>{path}</a>
           </div>
           <textarea value={current[k] || ""} onChange={set(k)} rows={10} dir={ar ? "rtl" : "ltr"}
             placeholder={ar ? "Leave blank to show the English version" : ""}

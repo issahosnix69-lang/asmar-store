@@ -1,0 +1,92 @@
+##
+# Build the shop and publish it to GitHub Pages.
+#
+# GitHub Pages only serves files; it does not run npm. Pointing it straight at
+# the repository publishes the source — index.html asking for /src/main.jsx,
+# which the browser cannot execute — and the visitor gets the dark background
+# with nothing on it. So the build happens here and only dist/ is published.
+#
+# Set Settings -> Pages -> Source to "GitHub Actions" once, or this workflow
+# succeeds and nothing changes on the live site.
+##
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # So a deploy can be re-run from the Actions tab without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. Not cancel-in-progress: a half-finished upload that gets
+# cancelled can leave Pages serving a mixed set of asset filenames.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches .nvmrc, package.json engines and netlify.toml. @supabase/
+          # supabase-js needs >=22 and fails outright on 18.
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          # This is a project site, served from /asmar-store/ rather than the
+          # domain root. Vite rewrites the asset URLs with it, and src/paths.js
+          # reads the same value back at runtime for the shop's own links.
+          # Rename the repository and this line has to change with it.
+          ASMAR_BASE: /asmar-store/
+          # Canonical URLs, sitemap.xml and the WhatsApp link previews. No
+          # trailing slash.
+          VITE_SITE_URL: https://issahosnix69-lang.github.io/asmar-store
+
+          # Settings -> Secrets and variables -> Actions -> New repository secret.
+          # Both are safe to expose — the anon key is designed to be public and
+          # row-level security is what protects the data. Without them the build
+          # still succeeds, but the live shop runs on browser localStorage and
+          # no order ever reaches Ali, so the deploy below refuses that case.
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      # A missing secret is silent otherwise: the shop deploys, looks perfect,
+      # sells nothing and loses every order into the customer's own browser.
+      - name: Fail if the Supabase keys were not configured
+        run: |
+          if [ -z "${{ secrets.VITE_SUPABASE_URL }}" ] || [ -z "${{ secrets.VITE_SUPABASE_ANON_KEY }}" ]; then
+            echo "::error::VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not set as repository secrets."
+            echo "::error::Add them under Settings -> Secrets and variables -> Actions, then re-run."
+            exit 1
+          fi
+
+      # Pages would otherwise run the artifact through Jekyll, which silently
+      # drops anything beginning with an underscore.
+      - run: touch dist/.nojekyll
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -19,7 +19,19 @@ const onReplit = Boolean(
    the values are substituted at build time and nothing can shadow them. */
 const forceLocal = Boolean(process.env.ASMAR_FORCE_LOCAL);
 
+/* GitHub Pages serves a project site from /<repo>/, not the domain root, so the
+   asset URLs Vite writes into index.html have to carry that prefix or every one
+   of them 404s and the page renders as a bare background.
+
+   Set by .github/workflows/deploy.yml and nowhere else. Netlify, Cloudflare
+   Pages, `npm run dev` and the Playwright suite all serve from the root and
+   leave it unset, so they keep a plain "/" and are untouched by any of this.
+   src/paths.js reads the same value back at runtime for the shop's own links. */
+const base = process.env.ASMAR_BASE || "/";
+
 export default defineConfig({
+  base,
+
   plugins: [react(), tailwindcss()],
 
   ...(forceLocal

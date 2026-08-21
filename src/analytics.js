@@ -11,6 +11,8 @@
  * Nothing loads until VITE_ANALYTICS_DOMAIN is set, so a fresh clone and the
  * local dev server stay completely untracked.
  */
+import { U } from "./paths.js";
+
 const PROVIDER = import.meta.env.VITE_ANALYTICS_PROVIDER || "plausible";
 const DOMAIN = import.meta.env.VITE_ANALYTICS_DOMAIN || "";
 const HOST = import.meta.env.VITE_ANALYTICS_HOST || "";
@@ -51,7 +53,9 @@ export function trackPageview(url) {
       window.plausible = window.plausible || function (...a) {
         (window.plausible.q = window.plausible.q || []).push(a);
       };
-      window.plausible("pageview", { u: location.origin + url });
+      /* The caller passes an app path; Plausible wants the address the visitor
+         is actually on, which on a subpath host carries the mount prefix. */
+      window.plausible("pageview", { u: location.origin + U(url) });
     }
   } catch { /* blocked by an ad blocker, which is fine */ }
 }

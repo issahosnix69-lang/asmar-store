@@ -21,6 +21,7 @@ import {
 import { SEED_CATALOG, SEED_CATEGORIES, SEED_FAQ, SEED_PAGES, SEED_SETTINGS } from "./src/seed.js";
 import { useDocumentMeta } from "./src/useDocumentMeta.js";
 import { trackPageview, trackEvent } from "./src/analytics.js";
+import { BASE, U, unbase } from "./src/paths.js";
 
 /* One person ever opens the admin; every customer would otherwise pay for it in
    download size. Split out so it only loads on /admin. */
@@ -39,12 +40,14 @@ const Admin = lazy(() => import("./src/admin.jsx"));
  */
 const NAV_EVENT = "asmar:navigate";
 
-const readPath = () => window.location.pathname + window.location.search || "/";
+/* Everything below the edges works in app paths — "/track", never
+   "/asmar-store/track". unbase() strips the mount prefix on the way in and U()
+   puts it back on the way out; both are identity on a root-mounted host. */
+const readPath = () => unbase(window.location.pathname) + window.location.search || "/";
 
 const go = (path, { replace = false } = {}) => {
-  const current = window.location.pathname + window.location.search;
-  if (path === current) return;
-  window.history[replace ? "replaceState" : "pushState"]({}, "", path);
+  if (path === readPath()) return;
+  window.history[replace ? "replaceState" : "pushState"]({}, "", U(path));
   window.dispatchEvent(new Event(NAV_EVENT));
 };
 
@@ -54,7 +57,7 @@ const go = (path, { replace = false } = {}) => {
 function upgradeLegacyHash() {
   const h = window.location.hash;
   if (!h.startsWith("#/")) return;
-  window.history.replaceState({}, "", h.slice(1) + window.location.search);
+  window.history.replaceState({}, "", U(h.slice(1)) + window.location.search);
 }
 
 function useAppRoute() {
@@ -90,8 +93,11 @@ function useAppRoute() {
       let url;
       try { url = new URL(a.href, window.location.href); } catch { return; }
       if (url.origin !== window.location.origin) return;
+      /* Same origin but outside our mount point — on Pages the domain root is
+         somebody else's site, so let the browser do a real navigation. */
+      if (unbase(url.pathname) === url.pathname && BASE) return;
       e.preventDefault();
-      go(url.pathname + url.search);
+      go(unbase(url.pathname) + url.search);
     };
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
@@ -184,7 +190,7 @@ function ShopHeader({ categories, activeCategory, count, onCart, onSearch, theme
       <div className="flex items-center gap-4 px-4 sm:px-6 py-3" style={{ maxWidth: WRAP, margin: "0 auto" }}>
         {/* The wordmark stays in Latin script in both languages — it is the
             brand's signature, not a word to be translated. */}
-        <a href="/" className="shrink-0 flex items-baseline gap-2" aria-label="The Asmar Store">
+        <a href={U("/")} className="shrink-0 flex items-baseline gap-2" aria-label="The Asmar Store">
           <span dir="ltr" style={{ fontFamily: script, fontSize: 32, color: T.brandText, lineHeight: 1 }}>Asmar</span>
           <span className="hidden sm:inline lbl" style={{ fontSize: 9.5, letterSpacing: ".28em",
                  textTransform: "uppercase", color: T.inkSoft }}>{t("nav.store")}</span>
@@ -192,7 +198,7 @@ function ShopHeader({ categories, activeCategory, count, onCart, onSearch, theme
 
         <nav className="hidden lg:flex flex-1 min-w-0 items-center gap-6 overflow-x-auto navscroll">
           {categories.slice(0, 6).map((c) => (
-            <a key={c} href={`/c/${slugify(c)}`} className="navlink lbl" data-active={activeCategory === c}
+            <a key={c} href={U(`/c/${slugify(c)}`)} className="navlink lbl" data-active={activeCategory === c}
               dir="auto"
               style={{ whiteSpace: "nowrap", fontSize: 11.5, letterSpacing: ".13em", textTransform: "uppercase",
                        color: activeCategory === c ? T.ink : T.inkSoft }}>
@@ -216,7 +222,7 @@ function ShopHeader({ categories, activeCategory, count, onCart, onSearch, theme
             aria-label={theme === "dark" ? "Light mode" : "Dark mode"}>
             {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
           </button>
-          <a href={signedIn ? "/account" : "/login"} aria-label={t("acc.account")}
+          <a href={U(signedIn ? "/account" : "/login")} aria-label={t("acc.account")}
             className="press icon-btn" style={{ ...iconBtn, color: signedIn ? T.brandText : T.ink }}>
             {signedIn ? <Wallet size={18} /> : <User size={18} />}
           </a>
@@ -254,17 +260,17 @@ function MobileTabs({ route, count, onSearch, onCart, signedIn }) {
     <nav className="lg:hidden fixed left-0 right-0 bottom-0 z-40 flex"
       style={{ background: "var(--bg-blur)", backdropFilter: "blur(14px) saturate(140%)",
                borderTop: `1px solid ${T.line}`, paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-      <a href="/" className="lbl" style={item(onHome)}><Home size={19} /> {t("nav.home")}</a>
+      <a href={U("/")} className="lbl" style={item(onHome)}><Home size={19} /> {t("nav.home")}</a>
       <button onClick={onSearch} className="lbl" style={item(false)}><Search size={19} /> {t("nav.search")}</button>
       {/* Signed-in customers reach their balance far more often than they track
           an order, so the tab follows whichever they are. Tracking stays in the
           footer and on the account page. */}
       {signedIn ? (
-        <a href="/account" className="lbl" style={item(route === "/account" || route === "/topup")}>
+        <a href={U("/account")} className="lbl" style={item(route === "/account" || route === "/topup")}>
           <Wallet size={19} /> {t("acc.account")}
         </a>
       ) : (
-        <a href="/track" className="lbl" style={item(route === "/track")}><Ticket size={19} /> {t("nav.track")}</a>
+        <a href={U("/track")} className="lbl" style={item(route === "/track")}><Ticket size={19} /> {t("nav.track")}</a>
       )}
       <button onClick={onCart} className="relative lbl" style={item(false)}>
         <span className="relative">
@@ -338,7 +344,7 @@ function SearchOverlay({ catalog, onClose, onAdd }) {
                 <div key={p.id} className="row flex items-center gap-3 px-3 py-2.5"
                   style={{ borderRadius: 10, border: "1px solid transparent" }}>
                   <ProductMark src={p.image} name={p.name} size={40} />
-                  <a href={productHref(p)} onClick={onClose} className="flex-1 min-w-0">
+                  <a href={U(productHref(p))} onClick={onClose} className="flex-1 min-w-0">
                     <Auto as="div" className="truncate" style={{ fontFamily: display, fontSize: 17, lineHeight: 1.5 }}>{p.name}</Auto>
                     <div className="truncate" style={{ fontSize: 12, color: T.inkSoft, lineHeight: 1.7 }}>
                       <Auto>{p.category}</Auto> · {t("product.from")} <Money v={lowestPrice(p)} />
@@ -458,7 +464,7 @@ function TrustStrip() {
 function CategoryCard({ name, label, cover, note, count, delay }) {
   const { t } = useT();
   return (
-    <a href={`/c/${slugify(name)}`} data-reveal className="tile block relative overflow-hidden"
+    <a href={U(`/c/${slugify(name)}`)} data-reveal className="tile block relative overflow-hidden"
       style={{ transitionDelay: `${delay}s`, background: T.surface,
                border: `1px solid ${T.line}`, borderRadius: 14 }}>
       <div className="relative flex items-center justify-center"
@@ -620,7 +626,7 @@ function Footer({ settings, categories, catLabel }) {
       <div style={{ maxWidth: WRAP, margin: "0 auto" }}>
         <div className="grid gap-9 sm:grid-cols-2 lg:grid-cols-4">
           <div>
-            <a href="/" dir="ltr" style={{ fontFamily: script, fontSize: 32, color: T.brandText, lineHeight: 1 }}>Asmar</a>
+            <a href={U("/")} dir="ltr" style={{ fontFamily: script, fontSize: 32, color: T.brandText, lineHeight: 1 }}>Asmar</a>
             <p style={{ fontSize: 13.5, color: T.inkSoft, lineHeight: 1.8, marginTop: 12, maxWidth: 270 }}>
               {t("foot.tagline")}
             </p>
@@ -651,7 +657,7 @@ function Footer({ settings, categories, catLabel }) {
             <Eyebrow style={{ marginBottom: 10 }}>{t("foot.categories")}</Eyebrow>
             <nav className="flex flex-col">
               {categories.slice(0, 6).map((c) => (
-                <a key={c} href={`/c/${slugify(c)}`} style={link} className="foot-link" dir="auto">
+                <a key={c} href={U(`/c/${slugify(c)}`)} style={link} className="foot-link" dir="auto">
                   {catLabel(c)}
                 </a>
               ))}
@@ -661,11 +667,11 @@ function Footer({ settings, categories, catLabel }) {
           <div>
             <Eyebrow style={{ marginBottom: 10 }}>{t("foot.help")}</Eyebrow>
             <nav className="flex flex-col">
-              <a href="/track" style={link} className="foot-link">{t("foot.track")}</a>
-              <a href="/page/refund" style={link} className="foot-link">{t("page.refund")}</a>
-              <a href="/page/terms" style={link} className="foot-link">{t("page.terms")}</a>
-              <a href="/page/privacy" style={link} className="foot-link">{t("page.privacy")}</a>
-              <a href="/page/about" style={link} className="foot-link">{t("page.about")}</a>
+              <a href={U("/track")} style={link} className="foot-link">{t("foot.track")}</a>
+              <a href={U("/page/refund")} style={link} className="foot-link">{t("page.refund")}</a>
+              <a href={U("/page/terms")} style={link} className="foot-link">{t("page.terms")}</a>
+              <a href={U("/page/privacy")} style={link} className="foot-link">{t("page.privacy")}</a>
+              <a href={U("/page/about")} style={link} className="foot-link">{t("page.about")}</a>
               {settings.whatsapp && (
                 <a href={`https://wa.me/${settings.whatsapp}`} target="_blank" rel="noopener noreferrer"
                   style={link} className="foot-link">{t("foot.contact")}</a>
@@ -676,7 +682,7 @@ function Footer({ settings, categories, catLabel }) {
           <div>
             <Eyebrow style={{ marginBottom: 10 }}>{t("foot.accepted")}</Eyebrow>
             <PayMarks className="mt-1" />
-            <a href="/admin" style={{ ...link, display: "block", marginTop: 14 }} className="foot-link">
+            <a href={U("/admin")} style={{ ...link, display: "block", marginTop: 14 }} className="foot-link">
               {t("nav.admin")}
             </a>
           </div>
@@ -757,7 +763,7 @@ function ProductCard({ product, onAdd, delay, noReveal, rating, reviewCount }) {
         </div>
       )}
 
-      <a href={productHref(product)} className="flex items-start gap-2.5 sm:gap-3 mb-3.5">
+      <a href={U(productHref(product))} className="flex items-start gap-2.5 sm:gap-3 mb-3.5">
         <ProductMark src={product.image} name={product.name} size={44} />
         <div className="min-w-0 flex-1">
           {/* Not clipped to one line: "Disney+" and "YouTube Premium" lose their
@@ -816,7 +822,7 @@ function ProductPage({ product, catalog, reviews, onAdd, whatsapp, catLabel }) {
     return (
       <main className="px-4 sm:px-6 py-24" style={{ maxWidth: 620, margin: "0 auto" }}>
         <EmptyState title={t("product.gone")} body={t("search.noneBody")} />
-        <div className="flex justify-center"><a href="/"><Btn variant="ghost">{t("status.back")}</Btn></a></div>
+        <div className="flex justify-center"><a href={U("/")}><Btn variant="ghost">{t("status.back")}</Btn></a></div>
       </main>
     );
   }
@@ -831,7 +837,7 @@ function ProductPage({ product, catalog, reviews, onAdd, whatsapp, catLabel }) {
 
   return (
     <main className="px-4 sm:px-6 pt-6 pb-20" style={{ maxWidth: WRAP, margin: "0 auto" }}>
-      <a href={`/c/${slugify(product.category)}`} className="inline-flex items-center gap-1.5 press lbl"
+      <a href={U(`/c/${slugify(product.category)}`)} className="inline-flex items-center gap-1.5 press lbl"
         style={{ fontSize: 11.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.inkSoft }}>
         <Arrow size={14} back /> {t("product.backToCategory", { category })}
       </a>
@@ -990,7 +996,7 @@ function CategoryHeader({ name, cover, note, count }) {
   const { t } = useT();
   return (
     <section className="px-4 sm:px-6 pt-6 pb-8" style={{ maxWidth: WRAP, margin: "0 auto" }}>
-      <a href="/" className="inline-flex items-center gap-1.5 press lbl"
+      <a href={U("/")} className="inline-flex items-center gap-1.5 press lbl"
         style={{ fontSize: 11.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.inkSoft }}>
         <Arrow size={14} back /> {t("cat.allCategories")}
       </a>
@@ -1046,9 +1052,9 @@ function CategoryChips({ categories, active, catLabel }) {
   const list = active && !categories.includes(active) ? [...categories, active] : categories;
   return (
     <div className="flex gap-2 overflow-x-auto pb-5 navscroll">
-      <a href="/" className="chip lbl" style={chip(false)}>{t("cat.all")}</a>
+      <a href={U("/")} className="chip lbl" style={chip(false)}>{t("cat.all")}</a>
       {list.map((c) => (
-        <a key={c} href={`/c/${slugify(c)}`} className="chip lbl" dir="auto" style={chip(active === c)}>
+        <a key={c} href={U(`/c/${slugify(c)}`)} className="chip lbl" dir="auto" style={chip(active === c)}>
           {catLabel(c)}
         </a>
       ))}
@@ -1104,7 +1110,7 @@ function PolicyPage({ pageKey, settings }) {
   return (
     <main className="px-4 sm:px-6 py-14" style={{ maxWidth: 720, margin: "0 auto" }}>
       <div data-reveal>
-        <a href="/" className="inline-flex items-center gap-1.5 press lbl mb-6"
+        <a href={U("/")} className="inline-flex items-center gap-1.5 press lbl mb-6"
           style={{ fontSize: 11.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.inkSoft }}>
           <Arrow size={14} back /> {t("status.back")}
         </a>
@@ -1141,7 +1147,7 @@ function AccountAccessPage({ mode = "signin", whatsapp, onDone }) {
     return (
       <a
         key={key}
-        href={key === "signin" ? "/login" : "/request"}
+        href={U(key === "signin" ? "/login" : "/request")}
         className="press lbl flex-1 text-center"
         aria-current={on ? "page" : undefined}
         style={{
@@ -1315,7 +1321,7 @@ function RequestAccountForm({ whatsapp }) {
               <Btn full variant="dark"><MessageCircle size={15} /> {t("req.tellUs")}</Btn>
             </a>
           )}
-          <a href="/login"><Btn full variant="ghost">{t("req.backToSignIn")}</Btn></a>
+          <a href={U("/login")}><Btn full variant="ghost">{t("req.backToSignIn")}</Btn></a>
         </div>
       </div>
     );
@@ -1421,7 +1427,7 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
           except typing the URL. One sign-in means one account, so the door
           belongs on the account it opens for. */}
       {isAdmin && (
-        <a href="/admin" data-reveal className="row flex items-center gap-3 px-4 py-3.5 mb-4"
+        <a href={U("/admin")} data-reveal className="row flex items-center gap-3 px-4 py-3.5 mb-4"
           style={{ background: T.tint, border: `1px solid ${T.tintDeep}`, borderRadius: 12 }}>
           <span className="flex items-center justify-center shrink-0"
             style={{ width: 34, height: 34, borderRadius: 9, background: T.surface, color: T.brandText }}>
@@ -1447,7 +1453,7 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
               <Money v={balance} />
             </p>
           </div>
-          <a href="/topup"><Btn><Plus size={15} /> {t("acc.addFunds")}</Btn></a>
+          <a href={U("/topup")}><Btn><Plus size={15} /> {t("acc.addFunds")}</Btn></a>
         </div>
       </div>
 
@@ -1512,7 +1518,7 @@ function AccountPage({ account, loading, whatsapp, onSignOut }) {
         ) : (
           <div className="flex flex-col gap-2">
             {orders.map((o) => (
-              <a key={o.code} href={`/order/${encodeURIComponent(o.code)}`}
+              <a key={o.code} href={U(`/order/${encodeURIComponent(o.code)}`)}
                 className="row flex items-center justify-between gap-3 px-4 py-3"
                 style={{ background: T.surface, border: `1px solid ${T.line}`, borderRadius: 12 }}>
                 <div className="min-w-0">
@@ -1614,7 +1620,7 @@ function TopUpPage({ settings, account, onDone }) {
               <Btn full variant="dark"><MessageCircle size={15} /> {t("top.tellUs")}</Btn>
             </a>
           )}
-          <a href="/account"><Btn full variant="ghost">{t("top.backToAccount")}</Btn></a>
+          <a href={U("/account")}><Btn full variant="ghost">{t("top.backToAccount")}</Btn></a>
         </div>
       </main>
     );
@@ -1628,7 +1634,7 @@ function TopUpPage({ settings, account, onDone }) {
   return (
     <main className="px-4 sm:px-6 py-12" style={{ maxWidth: 520, margin: "0 auto" }}>
       <div data-reveal>
-        <a href="/account" className="inline-flex items-center gap-1.5 press lbl mb-5"
+        <a href={U("/account")} className="inline-flex items-center gap-1.5 press lbl mb-5"
           style={{ fontSize: 11.5, letterSpacing: ".14em", textTransform: "uppercase", color: T.inkSoft }}>
           <Arrow size={14} back /> {t("top.backToAccount")}
         </a>
@@ -1739,7 +1745,7 @@ function OrderStatusPage({ code, whatsapp }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-6 py-16 text-center"
       style={{ background: T.bg, fontFamily: ui, color: T.ink }}>
-      <a href="/" dir="ltr" style={{ fontFamily: script, fontSize: 34, color: T.brandText, marginBottom: 26 }}>Asmar</a>
+      <a href={U("/")} dir="ltr" style={{ fontFamily: script, fontSize: 34, color: T.brandText, marginBottom: 26 }}>Asmar</a>
 
       {loading ? (
         <Loader2 className="animate-spin" size={22} style={{ color: T.brandText }} />
@@ -1775,7 +1781,7 @@ function OrderStatusPage({ code, whatsapp }) {
             <Btn full variant="dark">{t("status.message")}</Btn>
           </a>
         )}
-        <a href="/"><Btn full variant="ghost">{t("status.back")}</Btn></a>
+        <a href={U("/")}><Btn full variant="ghost">{t("status.back")}</Btn></a>
       </div>
     </div>
   );
@@ -1954,7 +1960,7 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                       {/* Someone stopped here with a full cart is the most
                           valuable person to give an account to, so the request
                           form is one tap away rather than a WhatsApp detour. */}
-                      <a href="/request" onClick={close} className="block mt-2">
+                      <a href={U("/request")} onClick={close} className="block mt-2">
                         <Btn full variant="ghost">{t("req.cta")}</Btn>
                       </a>
                       <p className="text-center" style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 10 }}>
@@ -2016,7 +2022,7 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                 ))}
               </div>
               {!signedIn && (
-                <a href="/login" onClick={close} className="inline-block mt-2"
+                <a href={U("/login")} onClick={close} className="inline-block mt-2"
                   style={{ fontSize: 12, color: T.brandText }}>
                   {t("co.signInToUse")} →
                 </a>
@@ -2120,7 +2126,7 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
             <a href={waLink()} target="_blank" rel="noopener noreferrer" style={{ marginTop: 16 }}>
               <Btn full variant="dark">{t("done.confirm")}</Btn>
             </a>
-            <a href={`/order/${encodeURIComponent(lastOrder.code)}`} onClick={close} style={{ marginTop: 10 }}>
+            <a href={U(`/order/${encodeURIComponent(lastOrder.code)}`)} onClick={close} style={{ marginTop: 10 }}>
               <Btn full variant="ghost">{t("done.track")}</Btn>
             </a>
             <Btn variant="quiet" full onClick={close} style={{ marginTop: 10 }}>{t("done.keep")}</Btn>
@@ -2479,7 +2485,12 @@ function Store() {
   }, [route, activeCategory, ready]);
 
   useEffect(() => { window.scrollTo(0, 0); setQ(""); }, [route]);
-  useReveal(`${route}|${ready}|${catalog.length}|${lang}`);
+  /* `account` belongs in here. The account page renders a skeleton until the
+     fetch lands, and a skeleton carries no [data-reveal] — so the effect found
+     nothing, returned early, and never armed either the observer or its
+     failsafe. The real content then arrived at opacity 0 with nothing left
+     running to reveal it, and the balance sat there invisible. */
+  useReveal(`${route}|${ready}|${catalog.length}|${lang}|${account ? "acc" : ""}`);
 
   /* Title, description, canonical and the WhatsApp preview card, per route.
      Waits for `ready` so a product page does not first publish the seed
