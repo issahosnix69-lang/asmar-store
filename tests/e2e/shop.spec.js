@@ -20,6 +20,25 @@ const SEED_ACCOUNT = `
   ]));
 `;
 
+/* The shop pulls its four typefaces from Google Fonts. That is a decision about
+   the product, not something these tests are checking — but `page.goto` waits
+   for "load", and "load" waits for those files, so on a connection that cannot
+   reach fonts.gstatic.com every test here times out at 30s against a shop that
+   is working perfectly. Which tests fail then depends on which worker got the
+   slow socket, so the suite fails differently on each run and stops meaning
+   anything. Cut the dependency: the browser falls back to a system font and
+   every assertion below is about behaviour, not letterforms.
+
+   Answered with an empty stylesheet rather than aborted: an abort surfaces as
+   "Failed to load resource: net::ERR_FAILED" in the console, which the cold-load
+   test below would then correctly report as an error. An empty sheet asks for no
+   woff2 at all, so nothing is left to fail. */
+test.beforeEach(async ({ page }) => {
+  await page.route(/fonts\.(googleapis|gstatic)\.com/, (route) =>
+    route.fulfill({ status: 200, contentType: "text/css", body: "" })
+  );
+});
+
 const signIn = async (page) => {
   await page.addInitScript(SEED_ACCOUNT);
   await page.goto("/login");
@@ -41,7 +60,14 @@ test.describe("the shop loads", () => {
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
     await page.goto("/");
-    await page.waitForLoadState("networkidle");
+    /* Deliberately not networkidle. The shop pulls four woff2 files from
+       fonts.gstatic.com, so "no requests in flight" is a statement about a
+       third-party CDN, not about the shop — on a connection that cannot reach
+       it this test fails for 30s while the page itself rendered perfectly and
+       logged nothing. Wait for the app to have mounted, then give late errors
+       a moment to surface. */
+    await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    await page.waitForTimeout(1000);
     expect(errors).toEqual([]);
   });
 });
