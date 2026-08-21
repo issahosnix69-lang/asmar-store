@@ -9,3 +9,7 @@ test-results
 playwright-report
 blob-report
 coverage
+
+# Screenshots taken while working; not part of the shop.
+*.png
+!public/og.png
