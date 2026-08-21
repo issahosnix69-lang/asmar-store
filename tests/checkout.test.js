@@ -7,7 +7,7 @@
  * shop locally quietly teaches you the wrong thing.
  */
 import { describe, it, expect, beforeEach } from "vitest";
-import { placeOrder, fetchAccount, fetchOrderStatus, auth, oneRow, probe } from "../src/backend.js";
+import { placeOrder, fetchAccount, fetchOrderStatus, auth, oneRow, probe, randomId } from "../src/backend.js";
 
 const CUSTOMER = { name: "Rami", phone: "70123456", email: "rami@example.com", payment: "cod", notes: "" };
 const ITEMS = [{ key: "p1|1 month", id: "p1", name: "Netflix", label: "1 month", price: 4.5, qty: 2 }];
@@ -223,5 +223,29 @@ describe("diagnostic probes are bounded", () => {
   it("turns a rejection into an error rather than throwing", async () => {
     const { error } = await probe("Broken check", Promise.reject(new Error("relation does not exist")), 500);
     expect(error.message).toBe("relation does not exist");
+  });
+});
+
+/* A browser withholds whole APIs on an insecure origin rather than failing
+   them loudly. crypto.randomUUID is one of them, so the receipt filename it
+   used to build threw "crypto.randomUUID is not a function" over http:// on
+   the same build that worked over https://. getRandomValues carries no such
+   gate. */
+describe("random ids for filenames", () => {
+  it("does not depend on a secure-context API", () => {
+    const original = crypto.randomUUID;
+    /* Exactly what an insecure origin looks like from JavaScript: absent. */
+    delete crypto.randomUUID;
+    try {
+      expect(randomId()).toMatch(/^[0-9a-f]{8}$/);
+    } finally {
+      if (original) crypto.randomUUID = original;
+    }
+  });
+
+  it("does not repeat itself", () => {
+    const seen = new Set();
+    for (let i = 0; i < 500; i++) seen.add(randomId());
+    expect(seen.size).toBe(500);
   });
 });

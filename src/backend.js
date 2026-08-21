@@ -84,6 +84,21 @@ const localOrderCode = () =>
   "ASM-" + Date.now().toString(36).slice(-4).toUpperCase() + "-" +
   Array.from(crypto.getRandomValues(new Uint8Array(5)), (b) => CODE_ALPHABET[b & 31]).join("");
 
+/* Random hex, for filenames rather than for people to read.
+ *
+ * This used to be crypto.randomUUID().slice(0, 8), which throws outright with
+ * "crypto.randomUUID is not a function" on a page served over plain http:
+ * randomUUID is gated behind a secure context, and an absent method reads as a
+ * missing function rather than as a permissions error, so nothing about the
+ * message points at the cause. It broke top-up receipts on http://asmarr.store
+ * while working perfectly on https:// — the same site, the same build.
+ *
+ * getRandomValues carries no such gate and is available everywhere, so this
+ * works on both. Eight hex characters is the same width the slice gave. */
+export const randomId = (bytes = 4) =>
+  Array.from(crypto.getRandomValues(new Uint8Array(bytes)),
+             (b) => b.toString(16).padStart(2, "0")).join("");
+
 /* --------------------------------------------------------------- mapping */
 /* The database uses snake_case columns; the component uses camelCase. */
 const rowToProduct = (r) => ({
@@ -489,7 +504,7 @@ export async function submitTopup({ amount, method, receipt }) {
   const blob = dataUrlToBlob(receipt);
   /* Foldered by user id — the storage policy in supabase/receipts.sql keys on
      that first path segment to keep customers out of each other's receipts. */
-  const path = `${user.id}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}.jpg`;
+  const path = `${user.id}/${Date.now()}-${randomId()}.jpg`;
 
   const { error: upErr } = await supabase.storage
     .from("receipts")

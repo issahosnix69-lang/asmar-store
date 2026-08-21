@@ -12,6 +12,31 @@
     <meta name="theme-color" content="#0C0A0B" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#FDF7F5" media="(prefers-color-scheme: light)" />
 
+    <!-- Upgrade to HTTPS before anything else runs.
+
+         A browser withholds whole APIs on an insecure origin rather than
+         failing them loudly: crypto.randomUUID and navigator.clipboard are
+         simply absent over http://, so uploading a top-up receipt died with
+         "crypto.randomUUID is not a function" and the copy buttons on the
+         account page did nothing at all — on the same build that works
+         perfectly over https://.
+
+         GitHub Pages has an "Enforce HTTPS" setting that does this at the
+         edge, which is better because it runs before a single byte of the page
+         is exposed. This is the safety net for the window where that box is
+         unticked, or gets cleared by a domain change. Loopback is left alone
+         so the dev server and the end-to-end suite still work. -->
+    <script>
+      (function () {
+        var h = location.hostname;
+        if (location.protocol === "http:" && h !== "localhost" && h !== "[::1]"
+            && !/^127\./.test(h)) {
+          location.replace("https://" + location.host + location.pathname
+                           + location.search + location.hash);
+        }
+      })();
+    </script>
+
     <!-- Paint the saved theme before React mounts. Without this the page
          flashes light for a frame on every load, which looks broken on a
          shop whose default is dark. -->
