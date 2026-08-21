@@ -45,14 +45,19 @@ jobs:
 
       - run: npm run build
         env:
-          # This is a project site, served from /asmar-store/ rather than the
-          # domain root. Vite rewrites the asset URLs with it, and src/paths.js
-          # reads the same value back at runtime for the shop's own links.
-          # Rename the repository and this line has to change with it.
-          ASMAR_BASE: /asmar-store/
+          # No ASMAR_BASE here, and that is the whole point of the custom
+          # domain: asmarr.store serves this repository from its root, not from
+          # /asmar-store/, so `base` stays "/" and U()/unbase() in src/paths.js
+          # collapse to identity.
+          #
+          # If the domain ever lapses and the shop falls back to
+          # issahosnix69-lang.github.io/asmar-store/, this has to come back as
+          # ASMAR_BASE: /asmar-store/ or every asset 404s and the page renders
+          # as a bare dark background.
+
           # Canonical URLs, sitemap.xml and the WhatsApp link previews. No
           # trailing slash.
-          VITE_SITE_URL: https://issahosnix69-lang.github.io/asmar-store
+          VITE_SITE_URL: https://asmarr.store
 
           # Settings -> Secrets and variables -> Actions -> New repository secret.
           # Both are safe to expose — the anon key is designed to be public and

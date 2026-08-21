@@ -12,12 +12,15 @@
 
 export const SITE_NAME = "The Asmar Store";
 
-/* No trailing slash. Overridden per environment; the Netlify address is the
-   fallback so a build with no env set still emits absolute URLs. */
+/* No trailing slash. Overridden per environment; the live domain is the
+   fallback so a build with no env set still emits absolute URLs — and emits
+   the right ones, rather than the dead Netlify address this used to name,
+   which quietly put a hostname nobody owns into every canonical tag and every
+   WhatsApp preview whenever VITE_SITE_URL was missing. */
 export const SITE_URL =
   (typeof process !== "undefined" && process.env?.VITE_SITE_URL) ||
   (typeof import.meta !== "undefined" && import.meta.env?.VITE_SITE_URL) ||
-  "https://asmar-store.netlify.app";
+  "https://asmarr.store";
 
 const clean = (s, max = 158) => {
   const t = String(s || "").replace(/\s+/g, " ").trim();
