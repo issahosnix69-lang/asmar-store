@@ -72,9 +72,9 @@ export const SEED_FAQ = [
     qAr: "ماذا لو توقف الاشتراك عن العمل؟",
     aAr: "راسلنا على واتساب مع رمز الطلب. كل اشتراك مضمون طوال مدته — نستبدله لك مباشرةً وبدون نقاش." },
   { q: "How can I pay?",
-    a: "Whish Money, OMT, or cash on delivery inside Tripoli. Pick your method at checkout and we confirm before delivering.",
+    a: "Everything is paid from your balance. Top it up by Whish Money or OMT, upload the receipt, and we credit it — then ordering is one tap with nothing to arrange.",
     qAr: "ما هي طرق الدفع المتاحة؟",
-    aAr: "Whish Money أو OMT أو نقداً عند التسليم داخل طرابلس. اختر الطريقة عند إتمام الطلب ونؤكد معك قبل التسليم." },
+    aAr: "الشراء يتم من رصيدك. اشحن الرصيد عبر Whish Money أو OMT وارفع صورة الإيصال فنضيفه لك — وبعدها الطلب بضغطة واحدة دون أي ترتيبات." },
   { q: "Are the accounts private?",
     a: "Yes. Unless a plan is clearly marked as shared, you get your own profile and nobody else uses it.",
     qAr: "هل الحسابات خاصة؟",
@@ -112,14 +112,14 @@ export const SEED_PAGES = {
     "- Accounts are genuine and private unless a plan says otherwise\n" +
     "- Delivery in minutes, not days\n" +
     "- Every subscription is covered for its full period\n" +
-    "- Pay in cash inside Tripoli, or online with Whish and OMT",
+    "- Top up by Whish or OMT, then order from your balance in one tap",
   terms:
     "## Your account\n" +
     "Ordering requires an account, which we create for you — there is no self sign-up. Message us on WhatsApp and we will make one and send you the password. Keep it to yourself: anything ordered from your account, and any balance spent from it, is treated as yours.\n\n" +
     "## Balance\n" +
     "You may hold a balance with us and spend it on future orders. It is money you have already paid us and it stays yours: ask at any time and we return whatever is left, by the same method you sent it. A balance is not a bank account, earns nothing, and is only good in this shop.\n\n" +
     "## Ordering\n" +
-    "Placing an order on this site is a request to buy. The order is confirmed once we have received payment, or once we have agreed cash on delivery with you.\n\n" +
+    "Orders are paid from your balance, so an order is confirmed the moment it is placed and the amount is taken there and then. If we cannot deliver it, the amount goes back to your balance in full.\n\n" +
     "## Delivery\n" +
     "Subscription details are sent to the email address you enter at checkout, with a confirmation on WhatsApp. Delivery is usually within minutes and always within 24 hours. If we cannot deliver, you are refunded in full.\n\n" +
     "## Your responsibilities\n" +

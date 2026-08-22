@@ -27,6 +27,18 @@ import { summarise, byMonth, byProduct, byCustomer, periodRange } from "./report
 
 const STATUSES = ["New", "Awaiting payment", "Delivered", "Cancelled"];
 
+/* The shop takes payment from the balance and nothing else now. "cod" and
+   "online" still appear on orders placed before that, and "Awaiting payment"
+   stays in STATUSES for the same reason — those orders are still in the table
+   and still have to be filterable and settable. Reading a balance order as
+   "Cash", which is what the old inline ternary did, is how a delivered order
+   ends up chased for money that was already taken. */
+const PAYMENT_LABEL = {
+  balance: "From balance",
+  cod: "Cash (old)",
+  online: "Online (old)",
+};
+
 const LOCAL_UNLOCK_KEY = "asmar:admin-unlocked";
 
 /* Customer-facing copy is stored twice — English in the plain field, Arabic in
@@ -941,7 +953,7 @@ function AdminOrders({ orders, setStatus, setDelivery, costs, setCost }) {
               <div className="min-w-0">
                 <div style={{ fontFamily: display, fontSize: 18 }}>{o.customer.name}</div>
                 <div className="flex flex-wrap items-center gap-2" style={{ fontSize: 12, color: T.inkSoft }}>
-                  <span>{o.code} · {new Date(o.createdAt).toLocaleDateString()} · {o.customer.payment === "online" ? "Online" : "Cash"}</span>
+                  <span>{o.code} · {new Date(o.createdAt).toLocaleDateString()} · {PAYMENT_LABEL[o.customer.payment] || o.customer.payment || "—"}</span>
                   {o.paymentStatus && o.paymentStatus !== "unpaid" && (
                     <span style={{ fontSize: 10, letterSpacing: ".1em", textTransform: "uppercase",
                                    padding: "3px 8px", borderRadius: 999,

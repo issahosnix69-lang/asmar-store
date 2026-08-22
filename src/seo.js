@@ -68,7 +68,7 @@ export function metaFor(route, data = {}) {
   const base = {
     title: `${SITE_NAME} — Subscriptions, delivered in minutes`,
     description:
-      "Netflix, Spotify, Shahid VIP, Canva and more — delivered to your WhatsApp in minutes. Tripoli, Lebanon. Cash on delivery or pay online.",
+      "Netflix, Spotify, Shahid VIP, Canva and more — delivered to your WhatsApp in minutes. Tripoli, Lebanon. Top up once, then order in one tap.",
     canonical: SITE_URL + (route === "/" ? "/" : route),
     image: `${SITE_URL}/og.png`,
     noindex: isNoindex(route),
@@ -125,7 +125,7 @@ export function metaFor(route, data = {}) {
           `${items.length} ${name.toLowerCase()} subscription${items.length === 1 ? "" : "s"} — ${items
             .slice(0, 6)
             .map((p) => p.name)
-            .join(", ")}. Delivered in minutes, cash on delivery or pay online.`,
+            .join(", ")}. Delivered in minutes, paid from your balance.`,
       ),
       image: (settings.categoryImages || {})[name]?.startsWith("http")
         ? settings.categoryImages[name]

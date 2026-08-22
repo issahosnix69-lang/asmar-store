@@ -154,11 +154,47 @@ test.describe("browse to order", () => {
     /* Prefilled from the account. */
     await expect(page.getByLabel(/name/i)).toHaveValue("Rami");
 
-    await page.getByRole("button", { name: /balance/i }).click();
+    /* No method to pick any more — the shop takes payment from the balance and
+       nothing else, so the panel states it rather than offering a choice. */
+    await expect(page.getByText(/pay from balance/i)).toBeVisible();
     await page.getByRole("button", { name: /place order/i }).click();
 
     /* The receipt carries the code the customer tracks the order with. */
     await expect(page.getByText(/ASM-/)).toBeVisible();
+  });
+
+  /* Cash on delivery used to be the fallback when the balance was short. With
+     it gone the order has to stop here, and say by how much — otherwise the
+     button is simply dead and the customer has no idea why. */
+  test("stops an order the balance cannot cover, and says how short it is", async ({ page }) => {
+    await page.addInitScript(`
+      localStorage.setItem("asmar:accounts", JSON.stringify([
+        { id: "cus-poor", email: "poor@example.com", password: "pw", name: "Rami",
+          phone: "70123456", active: true }
+      ]));
+      localStorage.setItem("asmar:wallet", JSON.stringify([
+        { id: 1, customerId: "cus-poor", amount: 1, kind: "topup", ref: "TOP-1",
+          created_at: new Date().toISOString() }
+      ]));
+    `);
+    await page.goto("/login");
+    await page.getByLabel(/email/i).fill("poor@example.com");
+    await page.getByLabel(/password/i).fill("pw");
+    await page.getByRole("button", { name: /^sign in$/i }).click();
+    await expect(page).toHaveURL(/\/account/);
+
+    await page.goto("/p/netflix");
+    await page.getByRole("button", { name: "Add to cart", exact: true }).click();
+    await page.getByRole("button", { name: /continue to checkout/i }).click();
+
+    await expect(page.getByText(/not enough balance/i)).toBeVisible();
+    /* $4.50 wanted, $1.00 held. */
+    await expect(page.getByText(/you need \$3\.50 more/i)).toBeVisible();
+
+    /* Tapping it must not place anything. */
+    await page.getByRole("button", { name: /place order/i }).click();
+    await page.waitForTimeout(600);
+    await expect(page.getByText(/ASM-/)).toHaveCount(0);
   });
 
   test("a signed-out visitor is stopped at the cart", async ({ page }) => {

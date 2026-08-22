@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   backend, auth, fetchCatalog, saveCatalog, fetchSettings, saveSettings,
-  placeOrder as submitOrder, updateOrderStatus, startWhishPayment, fetchOrderStatus,
+  placeOrder as submitOrder, updateOrderStatus, fetchOrderStatus,
   fetchAccount, submitTopup, requestAccount, saveOrderDelivery,
   fetchOrderCosts, saveOrderCost,
 } from "./src/backend.js";
@@ -2037,11 +2037,16 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
   const { t } = useT();
   const balance = Number(account?.balance ?? 0);
   const canUseBalance = signedIn && balance >= total && total > 0;
+  /* Pulled out of the JSX rather than inlined into the t() call: the i18n test
+     reads the keys the shop asks for straight out of the source, and its
+     matcher stops at one level of nested parentheses — money(Math.max(...))
+     hid this string from it, which reads as the string being dead. */
+  const shortfall = Math.max(0, total - balance);
   /* Resolved from the catalogue rather than copied onto each line item —
      duplicating logo data into every saved order would fill up storage fast. */
   const logoFor = (id) => catalog.find((p) => p.id === id)?.image;
 
-  const [form, setForm] = useState({ name: "", phone: "", email: "", payment: "cod", notes: "" });
+  const [form, setForm] = useState({ name: "", phone: "", email: "", payment: "balance", notes: "" });
   const [touched, setTouched] = useState({});
 
   /* Prefill from the signed-in account, and default to paying from the balance
@@ -2054,15 +2059,13 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
       name: f.name || p.name || "",
       phone: f.phone || p.phone || "",
       email: f.email || p.email || "",
-      payment: f.payment === "cod" && canUseBalance ? "balance" : f.payment,
+      payment: "balance",
     }));
   }, [account, canUseBalance]);
 
-  /* If the balance stops covering the order — another tab spent it, or an item
-     was added — fall back rather than submitting something that will fail. */
-  useEffect(() => {
-    if (form.payment === "balance" && !canUseBalance) setForm((f) => ({ ...f, payment: "cod" }));
-  }, [canUseBalance, form.payment]);
+  /* Nothing to fall back to any more: if the balance stops covering the order
+     — another tab spent it, or a line was added — the order is simply blocked
+     until it is topped up, which the panel above explains. */
 
   /* Signing out with the checkout form open would otherwise leave a form that
      cannot submit. */
@@ -2100,7 +2103,8 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
     const lines = lastOrder.items.map((i) => `• ${i.name} — ${i.label} ×${i.qty} = ${money(i.price * i.qty)}`).join("\n");
     const msg =
       `Order ${lastOrder.code}\n${lines}\n\nTotal: ${money(lastOrder.total)}\n` +
-      `Payment: ${lastOrder.customer.payment === "online" ? "Online" : "Cash on delivery"}\n` +
+      `Payment: from balance
+` +
       `Name: ${lastOrder.customer.name}\nEmail: ${lastOrder.customer.email}`;
     return `https://wa.me/${settings.whatsapp}?text=${encodeURIComponent(msg)}`;
   };
@@ -2210,42 +2214,41 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
             <Field label={t("co.email")} value={form.email} onChange={set("email")} onBlur={blur("email")}
               error={errorFor("email")} placeholder="you@email.com" type="email" autoComplete="email" dir="ltr" />
 
+            {/* The shop is balance-only. Cash on delivery and the Whish
+                handoff are gone, so there is nothing to choose between — this
+                states what will happen and, when the balance will not cover
+                it, blocks the order and says exactly how short it is. */}
             <div>
               <span className="lbl" style={{ fontFamily: ui, fontSize: 11, letterSpacing: ".14em", textTransform: "uppercase", color: T.inkSoft }}>
                 {t("co.payment")}
               </span>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                {signedIn && (
-                  <button onClick={() => canUseBalance && setForm({ ...form, payment: "balance" })}
-                    disabled={!canUseBalance}
-                    className="text-start px-3 py-3 press col-span-2"
-                    style={{ borderRadius: 10, opacity: canUseBalance ? 1 : 0.55,
-                             background: form.payment === "balance" ? T.tint : T.surface,
-                             border: `1px solid ${form.payment === "balance" ? T.brand : T.line}` }}>
-                    <div className="flex items-center gap-1.5" style={{ fontSize: 13.5, fontWeight: 500, color: T.ink }}>
-                      <Wallet size={14} style={{ color: T.brandText }} /> {t("co.balance")}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
-                      {canUseBalance
-                        ? t("co.balanceSub", { amount: money(balance) })
-                        : t("co.balanceShort", { amount: money(balance) })}
-                    </div>
-                  </button>
-                )}
-                {[
-                  { k: "cod", title: t("co.cod"), sub: t("co.codSub") },
-                  { k: "online", title: t("co.online"), sub: t("co.onlineSub") },
-                ].map((o) => (
-                  <button key={o.k} onClick={() => setForm({ ...form, payment: o.k })}
-                    className="text-start px-3 py-3 press"
-                    style={{ borderRadius: 10,
-                             background: form.payment === o.k ? T.tint : T.surface,
-                             border: `1px solid ${form.payment === o.k ? T.brand : T.line}` }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 500, color: T.ink }}>{o.title}</div>
-                    <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>{o.sub}</div>
-                  </button>
-                ))}
+              <div className="flex items-center gap-3 px-3.5 py-3 mt-2"
+                style={{ borderRadius: 10, background: canUseBalance ? T.tint : T.surface,
+                         border: `1px solid ${canUseBalance ? T.brand : T.line}` }}>
+                <Wallet size={16} className="shrink-0" style={{ color: T.brandText }} />
+                <div className="min-w-0">
+                  <div style={{ fontSize: 13.5, fontWeight: 500, color: T.ink }}>{t("co.balance")}</div>
+                  <div style={{ fontSize: 11.5, color: T.inkSoft, marginTop: 2 }}>
+                    {canUseBalance
+                      ? t("co.balanceSub", { amount: money(balance) })
+                      : t("co.balanceShort", { amount: money(balance) })}
+                  </div>
+                </div>
               </div>
+
+              {signedIn && !canUseBalance && total > 0 && (
+                <div className="px-3.5 py-3 mt-2"
+                  style={{ background: T.tint, borderRadius: 10, fontSize: 12.5, lineHeight: 1.7 }}>
+                  <div style={{ color: T.ink }}>
+                    {t("co.balanceNeeded", { amount: money(shortfall) })}
+                  </div>
+                  <a href={U("/topup")} onClick={close} className="inline-block mt-1.5"
+                    style={{ fontSize: 12.5, color: T.brandText, fontWeight: 500 }}>
+                    {t("acc.addFunds")} →
+                  </a>
+                </div>
+              )}
+
               {!signedIn && (
                 <a href={U("/login")} onClick={close} className="inline-block mt-2"
                   style={{ fontSize: 12, color: T.brandText }}>
@@ -2253,14 +2256,6 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                 </a>
               )}
             </div>
-
-            {form.payment === "online" && (
-              <div className="px-3.5 py-3" style={{ background: T.tint, borderRadius: 10, fontSize: 12.5,
-                     color: T.ink, lineHeight: 1.7 }}>
-                <div style={{ fontWeight: 500, marginBottom: 4, color: T.brandText }}>{t("co.transfer")}</div>
-                <Ltr>{settings.whishNote}</Ltr><br /><Ltr>{settings.omtNote}</Ltr>
-              </div>
-            )}
 
             <Field label={t("co.notes")} value={form.notes} onChange={set("notes")} placeholder={t("co.notesPlaceholder")} />
 
@@ -2282,22 +2277,14 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                 onClick={async () => {
                   if (!valid) return setTouched({ name: true, phone: true, email: true });
                   if (submitting) return;            // guard against a double tap
+                  /* Belt and braces — the button is already dimmed. The server
+                     refuses it too; this only avoids a pointless round trip. */
+                  if (!canUseBalance) return;
                   setSubmitting(true); setSubmitError("");
-                  const payingWithBalance = form.payment === "balance";
                   const balanceBefore = balance;
                   try {
-                    const order = await placeOrder(form, payingWithBalance);
-                    if (payingWithBalance) {
-                      setBalanceAfter(Math.max(0, balanceBefore - Number(order.total)));
-                    }
-                    /* Pay online: hand the customer to Whish's own page. The order
-                       already exists, so an abandoned payment leaves a recoverable
-                       "Awaiting payment" order rather than nothing. */
-                    if (form.payment === "online" && backend.mode === "supabase") {
-                      const url = await startWhishPayment(order.code);
-                      window.location.href = url;
-                      return;
-                    }
+                    const order = await placeOrder(form, true);
+                    setBalanceAfter(Math.max(0, balanceBefore - Number(order.total)));
                   } catch (e) {
                     console.error(e);
                     setSubmitError(e?.message || t("co.errGeneric"));
@@ -2305,7 +2292,7 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
                     setSubmitting(false);
                   }
                 }}
-                style={{ opacity: valid && !submitting ? 1 : 0.5 }}>
+                style={{ opacity: valid && canUseBalance && !submitting ? 1 : 0.5 }}>
                 {submitting ? t("co.placing") : t("co.place")}
               </Btn>
             </div>
@@ -2344,9 +2331,7 @@ function CartDrawer({ cart, total, stage, setStage, setQty, removeItem, settings
             </div>
 
             <p style={{ fontSize: 13.5, color: T.inkSoft, lineHeight: 1.75, marginTop: 28 }}>
-              {lastOrder.customer.payment === "balance"
-                ? t("co.balanceUsed", { amount: money(balanceAfter ?? balance) })
-                : lastOrder.customer.payment === "online" ? t("done.online") : t("done.cod")}
+              {t("co.balanceUsed", { amount: money(balanceAfter ?? balance) })}
             </p>
             <a href={waLink()} target="_blank" rel="noopener noreferrer" style={{ marginTop: 16 }}>
               <Btn full variant="dark">{t("done.confirm")}</Btn>
