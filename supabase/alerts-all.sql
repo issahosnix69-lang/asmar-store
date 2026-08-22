@@ -19,6 +19,17 @@
 -- Security definer because notify_config has row-level security with no
 -- policies at all — the bot token is unreadable with the anon key, and stays
 -- that way. Callers pass text and never see the token.
+-- telegram_chat_id holds one id, or several separated by commas:
+--
+--     update public.notify_config
+--        set telegram_chat_id = '1870794724,987654321'
+--      where id = 1;
+--
+-- Everyone listed gets every alert. A comma-separated column rather than a
+-- recipients table because the whole list is two or three people who all see
+-- the same thing — a table would be a join, a policy and a migration to say
+-- what a comma already says. Negative ids are Telegram groups and work here
+-- too, which is the better answer once there are more than two people.
 create or replace function public.send_telegram(p_text text)
 returns void
 language plpgsql
@@ -26,7 +37,8 @@ security definer
 set search_path = public, extensions
 as $$
 declare
-  v_cfg public.notify_config%rowtype;
+  v_cfg  public.notify_config%rowtype;
+  v_chat text;
 begin
   select * into v_cfg from public.notify_config where id = 1;
 
@@ -35,16 +47,26 @@ begin
     return;                                        -- not configured yet, no-op
   end if;
 
-  perform net.http_post(
-    url     := 'https://api.telegram.org/bot' || v_cfg.telegram_token || '/sendMessage',
-    headers := jsonb_build_object('Content-Type', 'application/json'),
-    body    := jsonb_build_object(
-                 'chat_id', v_cfg.telegram_chat_id,
-                 'text',    p_text,
-                 'disable_web_page_preview', true
-               ),
-    timeout_milliseconds := 5000
-  );
+  foreach v_chat in array string_to_array(v_cfg.telegram_chat_id, ',')
+  loop
+    v_chat := trim(v_chat);
+    continue when v_chat = '';
+
+    -- Each send is its own request. pg_net posts asynchronously, so one
+    -- recipient who has blocked the bot cannot hold up or cancel the others —
+    -- which is the failure that would otherwise silence Ali's own alerts the
+    -- day he adds somebody else's id.
+    perform net.http_post(
+      url     := 'https://api.telegram.org/bot' || v_cfg.telegram_token || '/sendMessage',
+      headers := jsonb_build_object('Content-Type', 'application/json'),
+      body    := jsonb_build_object(
+                   'chat_id', v_chat,
+                   'text',    p_text,
+                   'disable_web_page_preview', true
+                 ),
+      timeout_milliseconds := 5000
+    );
+  end loop;
 end;
 $$;
 

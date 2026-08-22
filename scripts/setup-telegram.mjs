@@ -1,17 +1,24 @@
-/* Wires up order alerts.
+/* Wires up the shop alerts, and adds people to them.
  *
- * Telegram will not tell you your own chat id until you have sent the bot a
- * message — there is no API for "who owns this bot". So: message the bot once,
- * run this, and it finds the id and prints the two commands that finish the
- * setup.
+ * Telegram will not tell you a chat id until that chat has messaged the bot —
+ * there is no API for "who owns this bot", and none for "who should get this".
+ * So: everyone who wants alerts presses Start in the bot once, then this runs,
+ * finds every chat that has spoken to it, sends each a test, and prints the
+ * single command that puts them all in the config.
+ *
+ * That is also how a second person is added later. They press Start, this runs
+ * again, and the generated command carries both ids.
  *
  * Usage:
  *   node scripts/setup-telegram.mjs <bot-token>
  *
- * The token is read from the command line and never written anywhere. It
- * belongs in Supabase secrets, which is server-side; it must NEVER become a
- * VITE_ variable, because Vite inlines those into the browser bundle and the
- * bot would then be controllable by anyone who views source.
+ * The token is read from the command line and never written to disk by this
+ * script. It lives in notify_config, which has row-level security enabled and
+ * no policies at all, so the anon key cannot read it — only the service role
+ * and the security-definer functions can.
+ *
+ * It must NEVER become a VITE_ variable. Vite inlines those into the browser
+ * bundle, and the bot would then be controllable by anyone who views source.
  */
 const token = process.argv[2] || process.env.TELEGRAM_BOT_TOKEN;
 
@@ -54,53 +61,74 @@ send a message there instead — the id will be negative, which is normal.
   process.exit(1);
 }
 
-console.log("Found:\n");
+console.log("Found these chats:\n");
+const ids = [];
 for (const [id, chat] of chats) {
-  const who = chat.title || [chat.first_name, chat.last_name].filter(Boolean).join(" ") || chat.username;
-  console.log(`  ${id}   ${who}  (${chat.type})`);
+  const who =
+    chat.title ||
+    [chat.first_name, chat.last_name].filter(Boolean).join(" ") ||
+    chat.username ||
+    "(no name)";
+  const kind = chat.type === "private" ? "person" : chat.type;
+  console.log(`  ${String(id).padEnd(16)} ${who}  (${kind})`);
+  ids.push(String(id));
 }
 
-const [chatId] = [...chats.keys()];
+/* Every chat that has spoken to the bot, not just the first one.
+ *
+ * This used to take `const [chatId] = chats.keys()` and quietly ignore the
+ * rest, which is exactly backwards: a second chat in this list is somebody who
+ * deliberately opened the bot and pressed Start, and the only reason to do
+ * that is to be told about orders. Ali adding his partner meant re-running
+ * this and wondering why only one id came out. */
+console.log(`\nSending a test message to all ${ids.length}…\n`);
 
-/* A send-to-self proves the whole path works before an order depends on it. */
-const test = await fetch(api("sendMessage"), {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    chat_id: chatId,
-    text: "✅ <b>Asmar Store</b>\nOrder alerts are connected. New orders will arrive here.",
-    parse_mode: "HTML",
-  }),
-}).then((r) => r.json());
+for (const id of ids) {
+  const test = await fetch(api("sendMessage"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: id,
+      text: "✅ Asmar Store — alerts are connected. Orders, account requests and top-ups will arrive here.",
+      disable_web_page_preview: true,
+    }),
+  }).then((r) => r.json());
 
-console.log(
-  test.ok
-    ? `\nSent a test message to ${chatId}. Check your phone.\n`
-    : `\nCould not send a test message: ${test.description}\n`,
-);
+  console.log(
+    test.ok
+      ? `  ${id}  delivered`
+      : `  ${id}  FAILED — ${test.description}`,
+  );
+}
 
-/* Generated here rather than pasted by hand: the same value has to end up in
-   two places and a mismatch fails silently. */
-const secret = [...crypto.getRandomValues(new Uint8Array(32))]
-  .map((b) => b.toString(16).padStart(2, "0"))
-  .join("");
+/* Anyone who did not receive it is not going to receive an order alert either,
+   so they are left out of the generated command rather than written into the
+   config to fail silently forever. */
+console.log(`
+Now paste this into the Supabase SQL Editor:
 
-console.log(`Now run these, in order.
-
-1. Deploy the function and give it the secrets:
-
-   supabase functions deploy notify-order --no-verify-jwt
-   supabase secrets set NOTIFY_SECRET=${secret}
-   supabase secrets set TELEGRAM_BOT_TOKEN=${token}
-   supabase secrets set TELEGRAM_CHAT_ID=${chatId}
-
-2. Point the database trigger at it — Supabase SQL Editor, after running
-   supabase/notify.sql. Replace <project-ref> with your project's ref:
-
-   update public.notify_config set
-     url    = 'https://<project-ref>.functions.supabase.co/notify-order',
-     secret = '${secret}'
+  update public.notify_config
+     set enabled          = true,
+         telegram_token   = '${token}',
+         telegram_chat_id = '${ids.join(",")}'
    where id = 1;
 
-3. Check it in the admin: Diagnostics -> "Order alerts wiring" should be green.
+Everyone in that list gets every alert. To add someone later, have them press
+Start in the bot, run this script again, and paste the new command.
+
+Then check the whole path end to end, without waiting for a real order:
+
+  select public.send_telegram('test');
+
+If nothing arrives, pg_net's background worker is the usual cause:
+
+  select count(*) from net.http_request_queue;   -- queued but unsent
+  select net.worker_restart();
 `);
+
+/* A reminder rather than an instruction: supabase/notify-direct.sql posts to
+   Telegram straight from Postgres with pg_net, and supabase/alerts-all.sql
+   adds the account-request and top-up triggers on top. Neither needs an Edge
+   Function, a deploy, or the CLI — this script used to print all three, which
+   was setup nobody here has to do. */
+console.log(`Requires supabase/notify-direct.sql and supabase/alerts-all.sql to have been run.\n`);
